@@ -107,6 +107,8 @@ def render_streaming_response_with_loading(
     accumulated = ""
     buffer = ""
     first_chunk_received = False
+    last_update_length = 0
+    update_threshold = 20  # Only update every N characters to reduce flashing
     
     # Show loading status while waiting for first chunk
     with show_loading_status(loading_message):
@@ -130,7 +132,7 @@ def render_streaming_response_with_loading(
             return ""
     
     # Now render the rest with Live
-    with Live(console=console, refresh_per_second=10) as live:
+    with Live(console=console, refresh_per_second=15, transient=False) as live:
         # Render first chunk immediately
         if show_markdown:
             try:
@@ -141,39 +143,54 @@ def render_streaming_response_with_loading(
         else:
             live.update(Text(accumulated))
         
+        last_update_length = len(accumulated)
+        
         # Continue with rest of stream
         try:
             for chunk in stream:
                 accumulated += chunk
                 buffer += chunk
                 
-                # Try to render complete markdown blocks
+                # Only update if we have enough new content or detect a complete block
+                should_update = False
+                new_content_length = len(accumulated) - last_update_length
+                
                 if show_markdown:
+                    # Update on complete code blocks or paragraphs to reduce flashing
+                    if "```" in buffer:
+                        # Check if we have a complete code block (opening and closing)
+                        code_blocks = buffer.count("```")
+                        if code_blocks >= 2:
+                            should_update = True
+                            buffer = ""
+                    elif "\n\n" in buffer:
+                        # Update on paragraph breaks
+                        should_update = True
+                        buffer = ""
+                    elif new_content_length >= update_threshold:
+                        # Update periodically to show progress
+                        should_update = True
+                else:
+                    # For non-markdown, update more frequently but still throttled
+                    if new_content_length >= update_threshold:
+                        should_update = True
+                
+                if should_update:
                     try:
-                        # Check if we have a complete code block or paragraph
-                        if "```" in buffer or "\n\n" in buffer:
-                            # Render accumulated content
+                        if show_markdown:
                             markdown = Markdown(accumulated)
                             live.update(markdown)
-                            buffer = ""
+                        else:
+                            live.update(Text(accumulated))
+                        last_update_length = len(accumulated)
                     except Exception:
                         # If markdown parsing fails, just show text
                         live.update(Text(accumulated))
-                else:
-                    live.update(Text(accumulated))
+                        last_update_length = len(accumulated)
         except Exception as e:
             live.update(Text(f"[bold red]Error: {str(e)}[/bold red]"))
             return ""
     
-    # Final render
-    if first_chunk_received:
-        if show_markdown:
-            try:
-                console.print(Markdown(accumulated))
-            except Exception:
-                console.print(accumulated)
-        else:
-            console.print(accumulated)
-    
+    # Final render (no need to re-render, Live already showed it)
     return accumulated
 

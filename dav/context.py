@@ -19,15 +19,76 @@ def truncate_path(path: str) -> str:
     return path
 
 
-def get_os_info() -> Dict[str, str]:
+def get_linux_distro() -> Dict[str, str]:
+    """Get Linux distribution information."""
+    distro_info = {}
+    
+    # Try /etc/os-release first (most common)
+    os_release_paths = [
+        Path("/etc/os-release"),
+        Path("/usr/lib/os-release"),
+    ]
+    
+    for os_release_path in os_release_paths:
+        if os_release_path.exists():
+            try:
+                with open(os_release_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if "=" in line and not line.startswith("#"):
+                            key, value = line.split("=", 1)
+                            # Remove quotes if present
+                            value = value.strip('"\'')
+                            distro_info[key.lower()] = value
+                break
+            except Exception:
+                continue
+    
+    # Fallback: try /etc/lsb-release (Ubuntu/Debian)
+    if not distro_info:
+        lsb_release_path = Path("/etc/lsb-release")
+        if lsb_release_path.exists():
+            try:
+                with open(lsb_release_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if "=" in line:
+                            key, value = line.split("=", 1)
+                            value = value.strip('"\'')
+                            distro_info[key.lower()] = value
+            except Exception:
+                pass
+    
+    return distro_info
+
+
+def get_os_info() -> Dict[str, Any]:
     """Get operating system information."""
-    return {
+    os_info = {
         "system": platform.system(),
         "release": platform.release(),
         "version": platform.version(),
         "machine": platform.machine(),
         "platform": platform.platform(),
     }
+    
+    # Add Linux distribution info if on Linux
+    if platform.system() == "Linux":
+        distro_info = get_linux_distro()
+        if distro_info:
+            # Extract key distribution information
+            os_info["distribution"] = distro_info.get("name", distro_info.get("distrib_id", "Unknown"))
+            os_info["distribution_id"] = distro_info.get("id", distro_info.get("distrib_id", "unknown"))
+            os_info["distribution_version"] = distro_info.get("version_id", distro_info.get("distrib_release", "unknown"))
+            os_info["distribution_pretty_name"] = distro_info.get("pretty_name", distro_info.get("distrib_description", ""))
+            
+            # Add version codename if available
+            if "version_codename" in distro_info:
+                os_info["distribution_codename"] = distro_info["version_codename"]
+            elif "distrib_codename" in distro_info:
+                os_info["distribution_codename"] = distro_info["distrib_codename"]
+    
+    return os_info
 
 
 def get_current_directory() -> Dict[str, Any]:
@@ -113,8 +174,28 @@ def format_context_for_prompt(context: Dict[str, Any]) -> str:
     # OS Information
     lines.append("## System Information")
     os_info = context.get("os", {})
-    lines.append(f"- Operating System: {os_info.get('system', 'unknown')} {os_info.get('release', '')}")
+    system = os_info.get("system", "unknown")
+    lines.append(f"- Operating System: {system}")
+    
+    # Add Linux distribution details if available
+    if system == "Linux":
+        if "distribution" in os_info:
+            distro_name = os_info.get("distribution_pretty_name") or os_info.get("distribution", "Unknown")
+            distro_version = os_info.get("distribution_version", "")
+            if distro_version and distro_version != "unknown":
+                lines.append(f"- Linux Distribution: {distro_name} (Version: {distro_version})")
+            else:
+                lines.append(f"- Linux Distribution: {distro_name}")
+            
+            if "distribution_codename" in os_info:
+                lines.append(f"- Distribution Codename: {os_info['distribution_codename']}")
+        
+        lines.append(f"- Kernel Version: {os_info.get('release', 'unknown')}")
+    else:
+        lines.append(f"- Release: {os_info.get('release', 'unknown')}")
+    
     lines.append(f"- Platform: {os_info.get('platform', 'unknown')}")
+    lines.append(f"- Architecture: {os_info.get('machine', 'unknown')}")
     lines.append("")
     
     # Directory Information
