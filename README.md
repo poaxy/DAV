@@ -30,6 +30,13 @@ pip install git+https://github.com/poaxy/DAV.git
 - **macOS**: `xcode-select --install` or install via [Homebrew](https://brew.sh)
 - **Fedora/RHEL**: `sudo dnf install git`
 
+**After installation**, run the setup command to configure Dav:
+```bash
+dav --setup
+```
+
+This will create the necessary directories and guide you through API key configuration.
+
 ### Install from PyPI (Coming Soon)
 
 Once published to PyPI, you can install with:
@@ -76,19 +83,47 @@ This will remove:
 
 ## Quick Start
 
-1. **Set up your API key** (create `~/.dav/.env` or `.env` in your project):
+1. **Set up your API key**:
+
+The `.dav` directory will be created automatically on first run. You need to create the `.env` file manually:
 
 ```bash
-# For OpenAI
+# Create the .dav directory (if it doesn't exist yet)
+mkdir -p ~/.dav
+
+# Create the .env file with your API key
+# For OpenAI:
+cat > ~/.dav/.env << EOF
 OPENAI_API_KEY=your_openai_api_key_here
 DAV_BACKEND=openai
 DAV_DEFAULT_MODEL=gpt-4-turbo-preview
+EOF
 
-# Or for Anthropic
+# Or for Anthropic:
+cat > ~/.dav/.env << EOF
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
 DAV_BACKEND=anthropic
 DAV_DEFAULT_MODEL=claude-3-5-sonnet-20241022
+EOF
 ```
+
+**Alternative**: You can also use a text editor:
+```bash
+nano ~/.dav/.env
+# or
+vim ~/.dav/.env
+```
+
+Then add your configuration (see Configuration section below for full options).
+
+**Quick Setup**: You can also use the interactive setup command:
+```bash
+dav --setup
+```
+
+This will create the `.dav` directory and guide you through creating the `.env` file.
+
+**Note**: The `~/.dav` directory will be automatically created when you first run Dav, but you need to create the `.env` file manually (or use `dav --setup`) before using Dav.
 
 2. **Ask a question**:
 
@@ -164,7 +199,22 @@ cat /var/log/syslog | dav "what errors do you see?"
 
 ## Configuration
 
-Create a `.env` file in `~/.dav/` or your current directory:
+Dav looks for configuration in a `.env` file. You can place it in:
+- `~/.dav/.env` (recommended, user-specific)
+- `.env` in your current working directory (project-specific)
+
+**To create the configuration file:**
+
+```bash
+# Create directory if it doesn't exist
+mkdir -p ~/.dav
+
+# Create and edit the .env file
+nano ~/.dav/.env
+# or use your preferred editor
+```
+
+Then add your configuration:
 
 ```bash
 # API Keys (required)

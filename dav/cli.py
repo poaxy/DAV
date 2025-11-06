@@ -39,8 +39,15 @@ def main(
     uninstall_data: bool = typer.Option(False, "--uninstall-data", help="Remove all Dav data files and directories"),
     list_data: bool = typer.Option(False, "--list-data", help="List all Dav data files and directories"),
     uninstall_info: bool = typer.Option(False, "--uninstall-info", help="Show uninstall instructions"),
+    setup: bool = typer.Option(False, "--setup", help="Set up Dav: create .dav directory and template .env file"),
 ):
     """Dav - An intelligent, context-aware AI assistant for the Linux terminal."""
+    
+    # Handle setup command
+    if setup:
+        from dav.setup import run_setup
+        run_setup()
+        return
     
     # Handle uninstall commands
     if uninstall_info:
