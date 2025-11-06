@@ -121,9 +121,9 @@ def main(
             render_error("No query provided. Use 'dav \"your question\"' or 'dav -i' for interactive mode.")
             sys.exit(1)
     
-    # Build prompt with context
+    # Build prompt with context (pass execute flag for system prompt)
     full_prompt, system_prompt = _build_prompt_with_context(
-        query, session_manager, stdin_content=stdin_content
+        query, session_manager, stdin_content=stdin_content, execute_mode=execute
     )
     
     # Stream response with loading indicator
@@ -150,10 +150,17 @@ def main(
 def _build_prompt_with_context(
     query: str,
     session_manager: SessionManager,
-    stdin_content: Optional[str] = None
+    stdin_content: Optional[str] = None,
+    execute_mode: bool = False
 ) -> Tuple[str, str]:
     """
     Build prompt with context and session history.
+    
+    Args:
+        query: User query
+        session_manager: Session manager instance
+        stdin_content: Optional stdin content
+        execute_mode: Whether in execute mode (affects system prompt)
     
     Returns:
         (full_prompt, system_prompt)
@@ -167,8 +174,8 @@ def _build_prompt_with_context(
         if session_context:
             context_str = session_context + "\n" + context_str
         
-        # Get system prompt
-        system_prompt = get_system_prompt()
+        # Get system prompt (with execute mode flag)
+        system_prompt = get_system_prompt(execute_mode=execute_mode)
     
     return context_str, system_prompt
 
@@ -224,9 +231,9 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                 console.print("Session cleared.\n")
                 continue
             
-            # Build prompt with context
+            # Build prompt with context (pass execute flag for system prompt)
             full_prompt, system_prompt = _build_prompt_with_context(
-                query, session_manager
+                query, session_manager, execute_mode=execute
             )
             
             # Stream response with loading indicator

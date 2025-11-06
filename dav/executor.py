@@ -33,25 +33,54 @@ def extract_commands(text: str) -> List[str]:
     """Extract shell commands from AI response text."""
     commands = []
     
-    # Look for code blocks with bash/shell
-    code_block_pattern = r'```(?:bash|sh|shell)?\n(.*?)```'
+    # Only look for code blocks with bash/shell (most reliable)
+    code_block_pattern = r'```(?:bash|sh|shell|zsh)?\n(.*?)```'
     matches = re.findall(code_block_pattern, text, re.DOTALL | re.IGNORECASE)
     for match in matches:
-        # Split by newlines and filter empty
-        lines = [line.strip() for line in match.split('\n') if line.strip() and not line.strip().startswith('#')]
-        commands.extend(lines)
+        # Split by newlines and filter
+        lines = match.split('\n')
+        for line in lines:
+            line = line.strip()
+            # Skip empty lines, comments, and lines that are just variable assignments
+            if not line or line.startswith('#'):
+                continue
+            
+            # Skip lines that are just variable assignments (VAR=value)
+            if re.match(r'^[A-Z_][A-Z0-9_]*=', line):
+                continue
+            
+            # Only include lines that look like actual commands:
+            # - Have a command name followed by space and arguments, OR
+            # - Are at least 3 characters (to filter out single letters), OR
+            # - Contain common command operators (|, &&, ||, ;, >, <)
+            if (' ' in line or len(line) >= 3) and not re.match(r'^[a-z]+$', line):
+                commands.append(line)
     
-    # Also look for inline code with $ prefix
-    inline_pattern = r'\$?\s*`([^`]+)`'
-    inline_matches = re.findall(inline_pattern, text)
-    for match in inline_matches:
-        if match.strip() and not match.strip().startswith('#'):
-            commands.append(match.strip())
+    # Filter out false positives: single words that are just command names
+    # These are likely just mentions in text, not actual commands
+    filtered_commands = []
+    common_command_names = {'bash', 'sh', 'zsh', 'apt', 'yum', 'dnf', 'pacman', 
+                           'pip', 'python', 'python3', 'git', 'curl', 'wget', 
+                           'sudo', 'ls', 'cd', 'pwd', 'cat', 'grep', 'find'}
+    
+    for cmd in commands:
+        # Skip if it's just a single word that's a common command name
+        cmd_parts = cmd.split()
+        if len(cmd_parts) == 1 and cmd_parts[0].lower() in common_command_names:
+            continue
+        
+        # Skip if it's just a single word without any special characters
+        if len(cmd_parts) == 1 and not any(c in cmd for c in ['|', '&', ';', '>', '<', '(', ')', '[', ']']):
+            # Only include if it's a longer word (likely a script name)
+            if len(cmd_parts[0]) < 4:
+                continue
+        
+        filtered_commands.append(cmd)
     
     # Remove duplicates while preserving order
     seen = set()
     unique_commands = []
-    for cmd in commands:
+    for cmd in filtered_commands:
         if cmd not in seen:
             seen.add(cmd)
             unique_commands.append(cmd)

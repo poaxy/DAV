@@ -18,32 +18,66 @@ def detect_installation_method() -> str:
     Returns:
         'pipx', 'pip-user', 'venv', or 'unknown'
     """
-    # Check if we're in a pipx environment
+    # Method 1: Check if we're in a pipx environment
     # pipx installs packages in ~/.local/pipx/venvs/
     try:
-        import __main__
-        main_file = getattr(__main__, '__file__', None)
-        if main_file:
-            main_path = Path(main_file).resolve()
-            # Check if we're in a pipx venv
-            if '.local/pipx/venvs' in str(main_path) or 'pipx' in str(main_path):
-                return 'pipx'
-            
-            # Check if we're in a virtual environment
-            if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
-                # Check if it's a user venv or system venv
-                if '.local' in str(sys.prefix) or 'venv' in str(sys.prefix).lower():
-                    return 'venv'
+        # Check sys.prefix for pipx venv
+        if 'pipx' in str(sys.prefix).lower() or '.local/pipx' in str(sys.prefix):
+            return 'pipx'
+        
+        # Check if pipx list shows dav-ai
+        result = subprocess.run(
+            ['pipx', 'list'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0 and 'dav-ai' in result.stdout:
+            return 'pipx'
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        pass
     
+    # Method 2: Check if we're in a virtual environment
+    try:
+        if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
+            # We're in a venv
+            return 'venv'
     except Exception:
         pass
     
-    # Check if dav command is in ~/.local/bin (pip --user)
+    # Method 3: Check if dav command is in ~/.local/bin (pip --user)
     dav_path = shutil.which('dav')
     if dav_path:
-        dav_path_obj = Path(dav_path).resolve()
-        if '.local/bin' in str(dav_path_obj):
-            return 'pip-user'
+        try:
+            dav_path_obj = Path(dav_path).resolve()
+            if '.local/bin' in str(dav_path_obj) or str(dav_path_obj).startswith(str(Path.home() / '.local')):
+                return 'pip-user'
+        except Exception:
+            pass
+    
+    # Method 4: Check pip show to see where it's installed
+    try:
+        result = subprocess.run(
+            [sys.executable, '-m', 'pip', 'show', 'dav-ai'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            # Check location field
+            for line in result.stdout.split('\n'):
+                if line.startswith('Location:'):
+                    location = line.split(':', 1)[1].strip()
+                    if 'pipx' in location.lower():
+                        return 'pipx'
+                    elif '.local' in location:
+                        return 'pip-user'
+                    elif 'site-packages' in location:
+                        # Could be venv or system
+                        if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
+                            return 'venv'
+    except Exception:
+        pass
     
     return 'unknown'
 
@@ -52,6 +86,8 @@ def update_with_pipx() -> bool:
     """Update Dav using pipx."""
     try:
         console.print("[cyan]Updating Dav using pipx...[/cyan]")
+        
+        # First try upgrade
         result = subprocess.run(
             ['pipx', 'upgrade', 'dav-ai'],
             capture_output=True,
@@ -62,22 +98,38 @@ def update_with_pipx() -> bool:
         if result.returncode == 0:
             console.print("[green]✓ Dav updated successfully![/green]")
             return True
-        else:
-            # Try installing if upgrade fails (package might not be tracked)
-            console.print("[yellow]Upgrade failed, trying reinstall...[/yellow]")
-            result = subprocess.run(
-                ['pipx', 'reinstall', '--force', 'git+https://github.com/poaxy/DAV.git'],
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
-            
-            if result.returncode == 0:
-                console.print("[green]✓ Dav updated successfully![/green]")
-                return True
-            else:
-                console.print(f"[red]✗ Update failed:[/red] {result.stderr}")
-                return False
+        
+        # If upgrade fails, try reinstall
+        console.print("[yellow]Upgrade command failed, trying reinstall...[/yellow]")
+        result = subprocess.run(
+            ['pipx', 'reinstall', '--force', 'git+https://github.com/poaxy/DAV.git'],
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        
+        if result.returncode == 0:
+            console.print("[green]✓ Dav updated successfully![/green]")
+            return True
+        
+        # If reinstall with package name fails, try with package name
+        console.print("[yellow]Trying upgrade with package name...[/yellow]")
+        result = subprocess.run(
+            ['pipx', 'upgrade', 'git+https://github.com/poaxy/DAV.git'],
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        
+        if result.returncode == 0:
+            console.print("[green]✓ Dav updated successfully![/green]")
+            return True
+        
+        console.print(f"[red]✗ Update failed:[/red] {result.stderr}")
+        if result.stdout:
+            console.print(f"[yellow]Output:[/yellow] {result.stdout}")
+        return False
+        
     except subprocess.TimeoutExpired:
         console.print("[red]✗ Update timed out[/red]")
         return False
