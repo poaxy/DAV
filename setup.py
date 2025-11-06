@@ -32,7 +32,7 @@ setup(
     install_requires=requirements,
     entry_points={
         "console_scripts": [
-            "dav=dav.cli:main",
+            "dav=dav.cli:app",
         ],
     },
 )

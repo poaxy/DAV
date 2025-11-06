@@ -15,29 +15,35 @@ console = Console()
 def get_dav_data_paths() -> List[Tuple[Path, str]]:
     """Get all paths where Dav stores data."""
     paths = []
+    seen_paths = set()  # Track paths to avoid duplicates
     
     # History database
     history_db = get_history_db_path()
-    if history_db.exists():
+    if history_db.exists() and history_db not in seen_paths:
         paths.append((history_db, "History database"))
+        seen_paths.add(history_db)
     
     # Session directory
     session_dir = get_session_dir()
-    if session_dir.exists():
+    if session_dir.exists() and session_dir not in seen_paths:
         paths.append((session_dir, "Session directory"))
+        seen_paths.add(session_dir)
     
     # Config directory and .env file
     dav_dir = Path.home() / ".dav"
     env_file = dav_dir / ".env"
-    if env_file.exists():
+    if env_file.exists() and env_file not in seen_paths:
         paths.append((env_file, "Configuration file"))
+        seen_paths.add(env_file)
     
     # Check if .dav directory exists and has other files
-    if dav_dir.exists():
-        # Count files in .dav directory
-        files_in_dav = list(dav_dir.rglob("*"))
+    # Only add if it's not already included and has content
+    if dav_dir.exists() and dav_dir not in seen_paths:
+        # Count files in .dav directory (excluding the directory itself)
+        files_in_dav = [f for f in dav_dir.rglob("*") if f.is_file()]
         if files_in_dav:
             paths.append((dav_dir, "Dav data directory"))
+            seen_paths.add(dav_dir)
     
     return paths
 

@@ -290,6 +290,16 @@ MIT
 
 ## Troubleshooting
 
+### Command shows setup screen instead of running query
+
+If running `dav "your question"` shows the setup screen instead of processing your query, you may need to reinstall:
+
+```bash
+pip install --force-reinstall git+https://github.com/poaxy/DAV.git
+```
+
+This ensures the entry point is correctly configured.
+
 ### Command not found: `dav`
 
 If you see `command not found: dav` after installation, the `dav` command is likely installed in `~/.local/bin` which is not on your PATH.

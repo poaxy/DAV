@@ -3,6 +3,7 @@
 import re
 import subprocess
 import shlex
+import sys
 from typing import Optional, Tuple, List
 from dav.terminal import render_error, render_warning, render_command, confirm_action
 
@@ -121,9 +122,9 @@ def execute_commands_from_response(response: str, confirm: bool = True) -> None:
             if stdout:
                 print(stdout)
             if stderr:
-                print(stderr, file=__import__('sys').stderr)
+                print(stderr, file=sys.stderr)
         else:
             render_error(f"Command failed: {command}")
             if stderr:
-                print(stderr, file=__import__('sys').stderr)
+                print(stderr, file=sys.stderr)
 

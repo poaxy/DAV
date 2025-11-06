@@ -82,17 +82,6 @@ def render_command(command: str) -> None:
     console.print(Panel(syntax, border_style="cyan", title="Command"))
 
 
-def prompt_user(prompt: str, default: Optional[str] = None) -> str:
-    """Prompt user for input."""
-    if default:
-        full_prompt = f"{prompt} [{default}]: "
-    else:
-        full_prompt = f"{prompt}: "
-    
-    response = input(full_prompt).strip()
-    return response if response else (default or "")
-
-
 def confirm_action(message: str) -> bool:
     """Confirm an action with the user."""
     response = input(f"{message} (y/N): ").strip().lower()

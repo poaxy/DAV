@@ -1,7 +1,6 @@
 """AI backend integration for OpenAI and Anthropic."""
 
-from typing import Iterator, Optional, Dict, Any
-import sys
+from typing import Iterator, Optional
 from anthropic import Anthropic
 from openai import OpenAI
 

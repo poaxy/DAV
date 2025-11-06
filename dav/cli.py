@@ -1,26 +1,23 @@
 """Main CLI interface for Dav."""
 
 import sys
-from typing import Optional
+from typing import Optional, Tuple
 import typer
 from rich.console import Console
 
 from dav.context import build_context, format_context_for_prompt
 from dav.ai_backend import AIBackend, get_system_prompt
 from dav.terminal import (
-    render_streaming_response,
     render_streaming_response_with_loading,
-    render_response,
     render_error,
     render_info,
-    render_warning,
     show_loading_status,
 )
 from dav.history import HistoryManager
 from dav.session import SessionManager
 from dav.executor import execute_commands_from_response
 from dav.config import get_default_backend, get_execute_permission
-from dav.uninstall import uninstall_dav, remove_dav_files, list_dav_files, show_uninstall_info
+from dav.uninstall import remove_dav_files, list_dav_files, show_uninstall_info
 
 app = typer.Typer(help="Dav - An intelligent, context-aware AI assistant for the Linux terminal")
 console = Console()
@@ -117,21 +114,10 @@ def main(
             render_error("No query provided. Use 'dav \"your question\"' or 'dav -i' for interactive mode.")
             sys.exit(1)
     
-    # Build context and prompt
-    with show_loading_status("Building context..."):
-        context = build_context(query=query, stdin_content=stdin_content)
-        context_str = format_context_for_prompt(context)
-        
-        # Add session context if available
-        session_context = session_manager.get_conversation_context()
-        if session_context:
-            context_str = session_context + "\n" + context_str
-        
-        # Build full prompt
-        full_prompt = context_str
-        
-        # Get system prompt
-        system_prompt = get_system_prompt()
+    # Build prompt with context
+    full_prompt, system_prompt = _build_prompt_with_context(
+        query, session_manager, stdin_content=stdin_content
+    )
     
     # Stream response with loading indicator
     try:
@@ -141,24 +127,10 @@ def main(
             loading_message=f"Connecting to {backend_name}...",
         )
         
-        # Save to history
-        history_manager.add_query(
-            query=query,
-            response=response,
-            session_id=session_manager.session_id,
-            executed=execute
+        # Process response
+        _process_response(
+            response, query, ai_backend, history_manager, session_manager, execute
         )
-        
-        # Save to session
-        session_manager.add_message("user", query)
-        session_manager.add_message("assistant", response)
-        
-        # Execute commands if requested
-        if execute:
-            execute_commands_from_response(response, confirm=True)
-        elif get_execute_permission():
-            # Auto-execute if permission is enabled (still with confirmation)
-            execute_commands_from_response(response, confirm=True)
     
     except KeyboardInterrupt:
         console.print("\n\n[bold yellow]Interrupted by user[/bold yellow]")
@@ -166,6 +138,61 @@ def main(
     except Exception as e:
         render_error(f"Error: {str(e)}")
         sys.exit(1)
+
+
+def _build_prompt_with_context(
+    query: str,
+    session_manager: SessionManager,
+    stdin_content: Optional[str] = None
+) -> Tuple[str, str]:
+    """
+    Build prompt with context and session history.
+    
+    Returns:
+        (full_prompt, system_prompt)
+    """
+    with show_loading_status("Building context..."):
+        context = build_context(query=query, stdin_content=stdin_content)
+        context_str = format_context_for_prompt(context)
+        
+        # Add session context if available
+        session_context = session_manager.get_conversation_context()
+        if session_context:
+            context_str = session_context + "\n" + context_str
+        
+        # Get system prompt
+        system_prompt = get_system_prompt()
+    
+    return context_str, system_prompt
+
+
+def _process_response(
+    response: str,
+    query: str,
+    ai_backend: AIBackend,
+    history_manager: HistoryManager,
+    session_manager: SessionManager,
+    execute: bool
+) -> None:
+    """Process and save response, optionally execute commands."""
+    # Save to history
+    history_manager.add_query(
+        query=query,
+        response=response,
+        session_id=session_manager.session_id,
+        executed=execute
+    )
+    
+    # Save to session
+    session_manager.add_message("user", query)
+    session_manager.add_message("assistant", response)
+    
+    # Execute commands if requested
+    if execute:
+        execute_commands_from_response(response, confirm=True)
+    elif get_execute_permission():
+        # Auto-execute if permission is enabled (still with confirmation)
+        execute_commands_from_response(response, confirm=True)
 
 
 def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager, 
@@ -190,43 +217,24 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                 console.print("Session cleared.\n")
                 continue
             
-            # Build context
-            with show_loading_status("Building context..."):
-                context = build_context(query=query)
-                context_str = format_context_for_prompt(context)
-                
-                # Add session context
-                session_context = session_manager.get_conversation_context()
-                if session_context:
-                    context_str = session_context + "\n" + context_str
-                
-                # Get system prompt
-                system_prompt = get_system_prompt()
+            # Build prompt with context
+            full_prompt, system_prompt = _build_prompt_with_context(
+                query, session_manager
+            )
             
             # Stream response with loading indicator
             backend_name = ai_backend.backend.title()
             console.print()  # Empty line
             response = render_streaming_response_with_loading(
-                ai_backend.stream_response(context_str, system_prompt=system_prompt),
+                ai_backend.stream_response(full_prompt, system_prompt=system_prompt),
                 loading_message=f"Connecting to {backend_name}...",
             )
             console.print()  # Empty line
             
-            # Save to history
-            history_manager.add_query(
-                query=query,
-                response=response,
-                session_id=session_manager.session_id,
-                executed=execute
+            # Process response
+            _process_response(
+                response, query, ai_backend, history_manager, session_manager, execute
             )
-            
-            # Save to session
-            session_manager.add_message("user", query)
-            session_manager.add_message("assistant", response)
-            
-            # Execute commands if requested
-            if execute:
-                execute_commands_from_response(response, confirm=True)
         
         except KeyboardInterrupt:
             console.print("\n\n[bold yellow]Interrupted. Type 'exit' to quit.[/bold yellow]\n")
