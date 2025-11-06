@@ -17,7 +17,12 @@ class AIBackend:
         self.api_key = get_api_key(self.backend)
         
         if not self.api_key:
-            raise ValueError(f"API key not found for backend: {self.backend}. Set {self.backend.upper()}_API_KEY in .env")
+            error_msg = (
+                f"API key not found for backend: {self.backend}.\n"
+                f"Please set {self.backend.upper()}_API_KEY in your .env file.\n"
+                f"Run 'dav --setup' to configure Dav, or create ~/.dav/.env manually."
+            )
+            raise ValueError(error_msg)
         
         if self.backend == "openai":
             self.client = OpenAI(api_key=self.api_key)

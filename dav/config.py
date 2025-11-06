@@ -12,7 +12,13 @@ env_paths = [
 ]
 for env_path in env_paths:
     if env_path.exists():
-        load_dotenv(env_path)
+        # Check if file is not empty before loading
+        try:
+            if env_path.stat().st_size > 0:
+                load_dotenv(env_path)
+        except Exception:
+            # If we can't check size, try loading anyway
+            load_dotenv(env_path)
         break
 
 # Default configuration

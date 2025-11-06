@@ -86,7 +86,11 @@ def main(
     try:
         ai_backend = AIBackend(backend=backend, model=model)
     except ValueError as e:
-        render_error(str(e))
+        error_msg = str(e)
+        render_error(error_msg)
+        # Check if it's an API key error and suggest setup
+        if "API key not found" in error_msg:
+            console.print("\n[yellow]Tip:[/yellow] Run [cyan]dav --setup[/cyan] to configure your API keys.")
         sys.exit(1)
     
     history_manager = HistoryManager()

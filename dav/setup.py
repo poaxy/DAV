@@ -28,12 +28,27 @@ def run_setup() -> None:
         return
     
     # Check if .env already exists
-    if env_file.exists():
-        console.print(f"\n[yellow]⚠[/yellow] Configuration file already exists: {env_file}")
-        overwrite = Prompt.ask("Overwrite existing .env file?", choices=["y", "n"], default="n")
-        if overwrite.lower() != "y":
-            console.print("[yellow]Skipping .env file creation.[/yellow]")
-            return
+    env_file_exists = env_file.exists()
+    env_file_empty = False
+    
+    if env_file_exists:
+        # Check if file is empty or only contains whitespace
+        try:
+            with open(env_file, "r") as f:
+                content = f.read().strip()
+                env_file_empty = len(content) == 0
+        except Exception:
+            env_file_empty = False
+        
+        if env_file_empty:
+            console.print(f"\n[yellow]⚠[/yellow] Configuration file exists but is empty: {env_file}")
+            console.print("[yellow]The file will be overwritten with new configuration.[/yellow]")
+        else:
+            console.print(f"\n[yellow]⚠[/yellow] Configuration file already exists: {env_file}")
+            overwrite = Prompt.ask("Overwrite existing .env file?", choices=["y", "n"], default="n")
+            if overwrite.lower() != "y":
+                console.print("[yellow]Skipping .env file creation.[/yellow]")
+                return
     
     # Ask for backend preference
     console.print("\n[bold]Step 2:[/bold] Configure API key")
@@ -102,9 +117,27 @@ DAV_SESSION_DIR=~/.dav/sessions
 """
     
     try:
+        # Write the file
         with open(env_file, "w") as f:
             f.write(env_content)
+        
+        # Verify the file was written correctly
+        with open(env_file, "r") as f:
+            written_content = f.read()
+            if len(written_content.strip()) == 0:
+                console.print(f"[red]✗[/red] Error: File was written but appears empty!")
+                console.print("[yellow]This might be a permissions issue. Try creating the file manually.[/yellow]")
+                return
+            if api_key not in written_content:
+                console.print(f"[yellow]⚠[/yellow] Warning: API key might not have been written correctly.")
+                console.print("[yellow]Please verify the file contents manually.[/yellow]")
+        
         console.print(f"[green]✓[/green] Created configuration file: {env_file}")
+        console.print(f"[green]✓[/green] File size: {len(env_content)} bytes")
+    except PermissionError as e:
+        console.print(f"[red]✗[/red] Permission denied: Cannot write to {env_file}")
+        console.print("[yellow]Try running with appropriate permissions or create the file manually.[/yellow]")
+        return
     except Exception as e:
         console.print(f"[red]✗[/red] Error creating .env file: {e}")
         return
