@@ -37,6 +37,7 @@ def main(
     list_data: bool = typer.Option(False, "--list-data", help="List all Dav data files and directories"),
     uninstall_info: bool = typer.Option(False, "--uninstall-info", help="Show uninstall instructions"),
     setup: bool = typer.Option(False, "--setup", help="Set up Dav: create .dav directory and template .env file"),
+    update: bool = typer.Option(False, "--update", help="Update Dav to the latest version (preserves configuration)"),
 ):
     """Dav - An intelligent, context-aware AI assistant for the Linux terminal."""
     
@@ -44,6 +45,12 @@ def main(
     if setup:
         from dav.setup import run_setup
         run_setup()
+        return
+    
+    # Handle update command
+    if update:
+        from dav.update import run_update
+        run_update(confirm=True)
         return
     
     # Handle uninstall commands

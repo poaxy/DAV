@@ -83,7 +83,13 @@ This will create the necessary directories and guide you through API key configu
 Once published to PyPI, you can install with:
 
 ```bash
-pip install dav-ai
+pipx install dav-ai
+```
+
+Or if you prefer pip:
+```bash
+pip install --user dav-ai
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 ### Development Installation
@@ -93,6 +99,8 @@ For development, clone the repository and install in editable mode:
 ```bash
 git clone https://github.com/poaxy/DAV.git
 cd DAV
+python3 -m venv venv
+source venv/bin/activate
 pip install -e .
 ```
 
@@ -106,6 +114,13 @@ To completely remove Dav and all its data:
    ```
 
 2. **Uninstall the package**:
+   
+   If installed with pipx:
+   ```bash
+   pipx uninstall dav-ai
+   ```
+   
+   If installed with pip:
    ```bash
    pip uninstall dav-ai
    ```
@@ -220,6 +235,14 @@ dav "show me running processes" --execute
 ```bash
 dav --history
 ```
+
+### Update Dav
+```bash
+# Update to the latest version (preserves your configuration)
+dav --update
+```
+
+This will automatically detect your installation method (pipx, pip --user, or venv) and update accordingly.
 
 ### Uninstall Data
 ```bash
@@ -346,8 +369,14 @@ pip install --break-system-packages git+https://github.com/poaxy/DAV.git
 
 If running `dav "your question"` shows the setup screen instead of processing your query, you may need to reinstall:
 
+If installed with pipx:
 ```bash
-pip install --force-reinstall git+https://github.com/poaxy/DAV.git
+pipx reinstall git+https://github.com/poaxy/DAV.git
+```
+
+If installed with pip:
+```bash
+pip install --force-reinstall --user git+https://github.com/poaxy/DAV.git
 ```
 
 This ensures the entry point is correctly configured.

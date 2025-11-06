@@ -5,7 +5,7 @@ import subprocess
 import shlex
 import sys
 from typing import Optional, Tuple, List
-from dav.terminal import render_error, render_warning, render_command, confirm_action
+from dav.terminal import render_error, render_warning, render_info, render_command, confirm_action
 
 
 # Dangerous command patterns that should be blocked
