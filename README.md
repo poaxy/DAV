@@ -30,7 +30,18 @@ pip install git+https://github.com/poaxy/DAV.git
 - **macOS**: `xcode-select --install` or install via [Homebrew](https://brew.sh)
 - **Fedora/RHEL**: `sudo dnf install git`
 
-**After installation**, run the setup command to configure Dav:
+**After installation**, you may need to add the installation directory to your PATH:
+
+```bash
+# Add to PATH for current session
+export PATH="$HOME/.local/bin:$PATH"
+
+# Or add permanently to your shell profile
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Then run the setup command to configure Dav:
 ```bash
 dav --setup
 ```
@@ -276,6 +287,56 @@ dav/
 ## License
 
 MIT
+
+## Troubleshooting
+
+### Command not found: `dav`
+
+If you see `command not found: dav` after installation, the `dav` command is likely installed in `~/.local/bin` which is not on your PATH.
+
+**Solution**: Add `~/.local/bin` to your PATH:
+
+```bash
+# For current session
+export PATH="$HOME/.local/bin:$PATH"
+
+# To make it permanent, add to your shell profile
+# For bash:
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# For zsh:
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+After adding to PATH, verify the installation:
+```bash
+which dav
+dav --help
+```
+
+### Empty .env file
+
+If your `.env` file is empty or not being read:
+
+1. Run `dav --setup` to recreate it
+2. Or manually create/edit: `nano ~/.dav/.env`
+3. Make sure the file contains at least:
+   ```
+   OPENAI_API_KEY=your_key_here
+   DAV_BACKEND=openai
+   ```
+
+### Permission errors
+
+If you encounter permission errors when creating files:
+
+```bash
+# Ensure .dav directory has correct permissions
+mkdir -p ~/.dav
+chmod 700 ~/.dav
+```
 
 ## Contributing
 
