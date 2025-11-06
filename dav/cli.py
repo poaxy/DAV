@@ -20,6 +20,7 @@ from dav.history import HistoryManager
 from dav.session import SessionManager
 from dav.executor import execute_commands_from_response
 from dav.config import get_default_backend, get_execute_permission
+from dav.uninstall import uninstall_dav, remove_dav_files, list_dav_files, show_uninstall_info
 
 app = typer.Typer(help="Dav - An intelligent, context-aware AI assistant for the Linux terminal")
 console = Console()
@@ -35,8 +36,24 @@ def main(
     backend: Optional[str] = typer.Option(None, "--backend", help="AI backend (openai or anthropic)"),
     model: Optional[str] = typer.Option(None, "--model", help="AI model to use"),
     clear_history: bool = typer.Option(False, "--clear-history", help="Clear query history"),
+    uninstall_data: bool = typer.Option(False, "--uninstall-data", help="Remove all Dav data files and directories"),
+    list_data: bool = typer.Option(False, "--list-data", help="List all Dav data files and directories"),
+    uninstall_info: bool = typer.Option(False, "--uninstall-info", help="Show uninstall instructions"),
 ):
     """Dav - An intelligent, context-aware AI assistant for the Linux terminal."""
+    
+    # Handle uninstall commands
+    if uninstall_info:
+        show_uninstall_info()
+        return
+    
+    if list_data:
+        list_dav_files()
+        return
+    
+    if uninstall_data:
+        remove_dav_files(confirm=True)
+        return
     
     # Handle history commands
     if history:

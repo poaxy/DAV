@@ -48,6 +48,32 @@ cd DAV
 pip install -e .
 ```
 
+## Uninstallation
+
+To completely remove Dav and all its data:
+
+1. **Remove data files first** (while the package is still installed):
+   ```bash
+   dav --uninstall-data
+   ```
+
+2. **Uninstall the package**:
+   ```bash
+   pip uninstall dav-ai
+   ```
+
+**Note**: Run `dav --uninstall-data` before uninstalling the package, otherwise the `dav` command won't be available to clean up data files.
+
+This will remove:
+- Configuration files (`~/.dav/.env`)
+- History database (`~/.dav/history.db`)
+- Session files (`~/.dav/sessions/`)
+- The entire `~/.dav/` directory
+
+**Other uninstall commands:**
+- `dav --list-data` - List all Dav data files and directories
+- `dav --uninstall-info` - Show detailed uninstall instructions
+
 ## Quick Start
 
 1. **Set up your API key** (create `~/.dav/.env` or `.env` in your project):
@@ -117,6 +143,18 @@ dav "show me running processes" --execute
 ### View History
 ```bash
 dav --history
+```
+
+### Uninstall Data
+```bash
+# List all data files
+dav --list-data
+
+# Remove all data files (with confirmation)
+dav --uninstall-data
+
+# Show uninstall instructions
+dav --uninstall-info
 ```
 
 ### Analyze Logs
