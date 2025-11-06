@@ -19,19 +19,34 @@ An intelligent, context-aware AI assistant built directly into the Linux termina
 
 ### Install from GitHub (Recommended)
 
-Install directly from the GitHub repository with a single command:
+#### Option 1: Using pipx (Recommended for CLI tools)
+
+`pipx` is the recommended way to install CLI applications on modern Linux systems:
 
 ```bash
-pip install git+https://github.com/poaxy/DAV.git
+# Install pipx if you don't have it
+sudo apt install pipx  # Ubuntu/Debian
+# or
+brew install pipx      # macOS
+
+# Ensure pipx is in PATH
+pipx ensurepath
+
+# Install Dav
+pipx install git+https://github.com/poaxy/DAV.git
 ```
 
-**Note**: This requires `git` to be installed on your system. If you don't have git installed, you can install it with:
-- **Ubuntu/Debian**: `sudo apt-get install git`
-- **macOS**: `xcode-select --install` or install via [Homebrew](https://brew.sh)
-- **Fedora/RHEL**: `sudo dnf install git`
+**Note**: `pipx` automatically manages virtual environments and adds the command to your PATH.
 
-**After installation**, you may need to add the installation directory to your PATH:
+#### Option 2: Using pip with --user flag
 
+For systems that don't have `pipx` or if you prefer pip:
+
+```bash
+pip install --user git+https://github.com/poaxy/DAV.git
+```
+
+Then add to PATH:
 ```bash
 # Add to PATH for current session
 export PATH="$HOME/.local/bin:$PATH"
@@ -41,7 +56,22 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-Then run the setup command to configure Dav:
+#### Option 3: Using virtual environment
+
+If you prefer a virtual environment:
+
+```bash
+python3 -m venv dav-env
+source dav-env/bin/activate
+pip install git+https://github.com/poaxy/DAV.git
+```
+
+**Note**: This requires `git` to be installed on your system. If you don't have git installed:
+- **Ubuntu/Debian**: `sudo apt-get install git`
+- **macOS**: `xcode-select --install` or install via [Homebrew](https://brew.sh)
+- **Fedora/RHEL**: `sudo dnf install git`
+
+**After installation**, run the setup command to configure Dav:
 ```bash
 dav --setup
 ```
@@ -289,6 +319,28 @@ dav/
 MIT
 
 ## Troubleshooting
+
+### Externally-managed-environment error
+
+If you see `error: externally-managed-environment` on Ubuntu 23.04+ or Debian 12+, use one of these solutions:
+
+**Best option**: Use `pipx` (recommended for CLI tools):
+```bash
+sudo apt install pipx
+pipx ensurepath
+pipx install git+https://github.com/poaxy/DAV.git
+```
+
+**Alternative**: Use `--user` flag:
+```bash
+pip install --user git+https://github.com/poaxy/DAV.git
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+**Not recommended**: Override the protection (use at your own risk):
+```bash
+pip install --break-system-packages git+https://github.com/poaxy/DAV.git
+```
 
 ### Command shows setup screen instead of running query
 
