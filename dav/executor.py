@@ -1,5 +1,6 @@
 """Secure command execution for Dav."""
 
+import glob
 import re
 import subprocess
 import shlex
@@ -113,6 +114,23 @@ def execute_command(command: str, confirm: bool = True) -> Tuple[bool, str, str]
         if not parts:
             return False, "", "Empty command"
         
+        # Expand environment variables and user (~)
+        parts = [os.path.expandvars(os.path.expanduser(part)) for part in parts]
+
+        # Expand glob patterns (e.g., *.log) since we're not using a shell
+        expanded_parts: List[str] = []
+        for part in parts:
+            if any(ch in part for ch in ['*', '?', '[']):
+                matches = glob.glob(part)
+                if matches:
+                    expanded_parts.extend(matches)
+                else:
+                    expanded_parts.append(part)
+            else:
+                expanded_parts.append(part)
+
+        parts = expanded_parts
+
         # Execute the command
         result = subprocess.run(
             parts,
