@@ -1,7 +1,7 @@
 """Main CLI interface for Dav."""
 
 import sys
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 import typer
 from rich.console import Console
 
@@ -15,6 +15,7 @@ from dav.terminal import (
 )
 from dav.history import HistoryManager
 from dav.session import SessionManager
+from dav.command_plan import CommandPlanError, extract_command_plan
 from dav.executor import execute_commands_from_response
 from dav.config import get_default_backend, get_execute_permission
 from dav.uninstall import remove_dav_files, list_dav_files, show_uninstall_info
@@ -134,8 +135,11 @@ def main(
             sys.exit(1)
     
     # Build prompt with context (pass execute flag for system prompt)
-    full_prompt, system_prompt = _build_prompt_with_context(
-        query, session_manager, stdin_content=stdin_content, execute_mode=execute
+    context_data, full_prompt, system_prompt = _build_prompt_with_context(
+        query,
+        session_manager,
+        stdin_content=stdin_content,
+        execute_mode=execute,
     )
     
     # Stream response with loading indicator
@@ -155,6 +159,7 @@ def main(
             session_manager,
             execute,
             auto_confirm,
+            context_data,
         )
 
     except KeyboardInterrupt:
@@ -169,8 +174,8 @@ def _build_prompt_with_context(
     query: str,
     session_manager: SessionManager,
     stdin_content: Optional[str] = None,
-    execute_mode: bool = False
-) -> Tuple[str, str]:
+    execute_mode: bool = False,
+) -> Tuple[Dict, str, str]:
     """
     Build prompt with context and session history.
     
@@ -195,7 +200,7 @@ def _build_prompt_with_context(
         # Get system prompt (with execute mode flag)
         system_prompt = get_system_prompt(execute_mode=execute_mode)
     
-    return context_str, system_prompt
+    return context, context_str, system_prompt
 
 
 def _process_response(
@@ -205,7 +210,8 @@ def _process_response(
     history_manager: HistoryManager,
     session_manager: SessionManager,
     execute: bool,
-    auto_confirm: bool
+    auto_confirm: bool,
+    context_data: Optional[Dict]
 ) -> None:
     """Process and save response, optionally execute commands."""
     # Save to history
@@ -223,8 +229,22 @@ def _process_response(
     # Execute commands if requested
     should_execute = execute or get_execute_permission()
     if should_execute:
+        plan = None
+        try:
+            plan = extract_command_plan(response)
+        except CommandPlanError as err:
+            render_warning(f"Command plan missing or invalid: {err}. Falling back to heuristic parsing.")
+
         confirm = not auto_confirm
-        execute_commands_from_response(response, confirm=confirm)
+        if plan:
+            execute_commands_from_response(
+                response,
+                confirm=confirm,
+                context=context_data,
+                plan=plan,
+            )
+        else:
+            execute_commands_from_response(response, confirm=confirm, context=context_data)
 
 
 def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
@@ -250,7 +270,7 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                 continue
             
             # Build prompt with context (pass execute flag for system prompt)
-            full_prompt, system_prompt = _build_prompt_with_context(
+            context_data, full_prompt, system_prompt = _build_prompt_with_context(
                 query, session_manager, execute_mode=execute
             )
             
@@ -272,6 +292,7 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                 session_manager,
                 execute,
                 auto_confirm,
+                context_data,
             )
         
         except KeyboardInterrupt:

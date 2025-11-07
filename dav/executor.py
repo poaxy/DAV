@@ -1,12 +1,15 @@
+"""Command execution utilities for Dav."""
 """Secure command execution for Dav."""
 
 import glob
 import os
 import re
-import subprocess
 import shlex
+import subprocess
 import sys
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict
+
+from dav.command_plan import CommandPlan
 from dav.terminal import render_error, render_warning, render_info, render_command, confirm_action
 
 
@@ -58,27 +61,39 @@ def extract_commands(text: str) -> List[str]:
             if (' ' in line or len(line) >= 3) and not re.match(r'^[a-z]+$', line):
                 commands.append(line)
     
+    # Also capture inline code (e.g. `command`) as a fallback
+    inline_pattern = r'`([^`]+)`'
+    inline_matches = re.findall(inline_pattern, text)
+    for match in inline_matches:
+        candidate = match.strip()
+        if not candidate or candidate.startswith('#'):
+            continue
+        commands.append(candidate)
+
     # Filter out false positives: single words that are just command names
     # These are likely just mentions in text, not actual commands
     filtered_commands = []
-    common_command_names = {'bash', 'sh', 'zsh', 'apt', 'yum', 'dnf', 'pacman', 
-                           'pip', 'python', 'python3', 'git', 'curl', 'wget', 
-                           'sudo', 'ls', 'cd', 'pwd', 'cat', 'grep', 'find'}
-    
+    common_command_names = {'bash', 'sh', 'zsh', 'apt', 'yum', 'dnf', 'pacman',
+                            'pip', 'python', 'python3', 'git', 'curl', 'wget',
+                            'sudo', 'ls', 'cd', 'pwd', 'cat', 'grep', 'find'}
+
     for cmd in commands:
+        cmd = cmd.strip()
+        if not cmd:
+            continue
+
         # Skip if it's just a single word that's a common command name
         cmd_parts = cmd.split()
         if len(cmd_parts) == 1 and cmd_parts[0].lower() in common_command_names:
             continue
-        
-        # Skip if it's just a single word without any special characters
+
+        # Skip if it's just a single short word without any operators
         if len(cmd_parts) == 1 and not any(c in cmd for c in ['|', '&', ';', '>', '<', '(', ')', '[', ']']):
-            # Only include if it's a longer word (likely a script name)
-            if len(cmd_parts[0]) < 4:
+            if len(cmd_parts[0]) < 3:
                 continue
-        
+
         filtered_commands.append(cmd)
-    
+
     # Remove duplicates while preserving order
     seen = set()
     unique_commands = []
@@ -86,11 +101,11 @@ def extract_commands(text: str) -> List[str]:
         if cmd not in seen:
             seen.add(cmd)
             unique_commands.append(cmd)
-    
+
     return unique_commands
 
 
-def execute_command(command: str, confirm: bool = True) -> Tuple[bool, str, str]:
+def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = None) -> Tuple[bool, str, str]:
     """
     Execute a command securely.
     
@@ -138,6 +153,7 @@ def execute_command(command: str, confirm: bool = True) -> Tuple[bool, str, str]
             capture_output=True,
             text=True,
             timeout=30,  # 30 second timeout
+            cwd=cwd,
         )
         
         return result.returncode == 0, result.stdout, result.stderr
@@ -150,8 +166,72 @@ def execute_command(command: str, confirm: bool = True) -> Tuple[bool, str, str]
         return False, "", str(e)
 
 
-def execute_commands_from_response(response: str, confirm: bool = True) -> None:
-    """Extract and execute commands from AI response."""
+def _platform_matches(plan: CommandPlan, context: Optional[Dict]) -> bool:
+    if plan.platform is None or not context:
+        return True
+
+    os_info = context.get("os", {}) if isinstance(context, dict) else {}
+    candidates = set(p.lower() for p in plan.platform)
+
+    system_name = str(os_info.get("system", "")).lower()
+    distribution_id = str(os_info.get("distribution_id", "")).lower()
+    distribution = str(os_info.get("distribution", "")).lower()
+
+    values = {system_name, distribution_id, distribution}
+    values = {v for v in values if v}
+
+    return bool(candidates & values)
+
+
+def execute_plan(plan: CommandPlan, confirm: bool = True, context: Optional[Dict] = None) -> None:
+    """Execute a structured command plan."""
+
+    render_info("Command plan received:")
+    for idx, command in enumerate(plan.commands, 1):
+        render_command(f"{command}")
+
+    if plan.notes:
+        render_info(f"Notes: {plan.notes}")
+
+    if context is not None and not _platform_matches(plan, context):
+        render_warning("Command plan appears to target a different platform. Aborting execution.")
+        return
+
+    if confirm:
+        if not confirm_action("Execute ALL commands above?"):
+            render_warning("Command execution cancelled by user")
+            return
+
+    for idx, command in enumerate(plan.commands, 1):
+        if len(plan.commands) > 1:
+            render_info(f"Running command {idx}/{len(plan.commands)}")
+
+        success, stdout, stderr = execute_command(command, confirm=False, cwd=plan.cwd)
+
+        if success:
+            if stdout:
+                print(stdout)
+            if stderr:
+                print(stderr, file=sys.stderr)
+        else:
+            render_error(f"Command failed: {command}")
+            if stderr:
+                print(stderr, file=sys.stderr)
+            break
+
+
+def execute_commands_from_response(
+    response: str,
+    confirm: bool = True,
+    context: Optional[Dict] = None,
+    plan: Optional[CommandPlan] = None,
+) -> None:
+    """Execute commands extracted from response or provided via command plan."""
+
+    if plan is not None:
+        execute_plan(plan, confirm=confirm, context=context)
+        return
+
     commands = extract_commands(response)
     
     if not commands:

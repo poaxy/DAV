@@ -233,6 +233,10 @@ dav "show me running processes" --execute
 dav "remove .log files" --execute --yes
 ```
 
+Dav requests a structured JSON command plan from the assistant when `--execute` is used.
+The plan is validated (platform match, sudo usage, working directory) before each command runs.
+Commands are displayed first; passing `--yes` skips the confirmation prompt.
+
 ### View History
 ```bash
 dav --history
