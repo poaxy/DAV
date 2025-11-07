@@ -302,6 +302,10 @@ DAV_HISTORY_DB=~/.dav/history.db
 
 # Sessions
 DAV_SESSION_DIR=~/.dav/sessions
+
+# Input limits
+# Maximum number of characters to read from piped stdin (default 32000)
+DAV_MAX_STDIN_CHARS=32000
 ```
 
 ## Security Features

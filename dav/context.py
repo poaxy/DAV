@@ -6,9 +6,11 @@ import platform
 from pathlib import Path
 from typing import Optional, Dict, Any
 
+from dav.config import get_max_stdin_chars
+
 # Input validation & truncation limits
 MAX_DIR_FILES = 15
-MAX_STDIN_CHARS = 1000
+MAX_STDIN_CHARS = get_max_stdin_chars()
 MAX_PATH_LENGTH = 200
 
 

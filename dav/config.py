@@ -25,6 +25,7 @@ for env_path in env_paths:
 DEFAULT_MODEL_OPENAI = "gpt-4-turbo-preview"
 DEFAULT_MODEL_ANTHROPIC = "claude-3-5-sonnet-20241022"
 DEFAULT_BACKEND = "openai"  # or "anthropic"
+DEFAULT_MAX_STDIN_CHARS = 32000
 
 # Configuration getters
 def get_api_key(backend: str) -> Optional[str]:
@@ -75,4 +76,20 @@ def get_session_dir() -> Path:
         # Expand ~ to home directory
         return Path(session_dir).expanduser()
     return Path.home() / ".dav" / "sessions"
+
+
+def get_max_stdin_chars() -> int:
+    """Get maximum number of stdin characters to capture."""
+    value = os.getenv("DAV_MAX_STDIN_CHARS")
+    if value:
+        try:
+            parsed = int(value)
+            # Ensure the value is reasonable (positive and within 1MB)
+            if parsed <= 0:
+                return DEFAULT_MAX_STDIN_CHARS
+            # Cap at 1,000,000 characters to prevent excessive memory usage
+            return min(parsed, 1_000_000)
+        except ValueError:
+            return DEFAULT_MAX_STDIN_CHARS
+    return DEFAULT_MAX_STDIN_CHARS
 
