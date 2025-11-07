@@ -174,7 +174,7 @@ def format_context_for_prompt(context: Dict[str, Any]) -> str:
     lines = []
     
     # OS Information
-    lines.append("## System Information")
+    lines.append("## System Information (for your awareness; mention only if relevant)")
     os_info = context.get("os", {})
     system = os_info.get("system", "unknown")
     lines.append(f"- Operating System: {system}")
@@ -201,7 +201,7 @@ def format_context_for_prompt(context: Dict[str, Any]) -> str:
     lines.append("")
     
     # Directory Information
-    lines.append("## Current Directory")
+    lines.append("## Current Directory (internal context)")
     dir_info = context.get("directory", {})
     lines.append(f"- Path: {dir_info.get('path', 'unknown')}")
     
@@ -225,7 +225,7 @@ def format_context_for_prompt(context: Dict[str, Any]) -> str:
     
     # Stdin Input
     if "stdin" in context:
-        lines.append("## Piped Input")
+        lines.append("## Piped Input (internal content to analyze)")
         lines.append("```")
         lines.append(context["stdin"])
         lines.append("```")
