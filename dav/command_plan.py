@@ -1,7 +1,6 @@
-"""Command plan parsing and validation helpers."""
-"""Command plan parsing and validation for Dav execute mode."""
-
 from __future__ import annotations
+
+"""Command plan parsing and validation helpers."""
 
 import json
 import re
