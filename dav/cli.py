@@ -43,6 +43,13 @@ def main(
     uninstall_info: bool = typer.Option(False, "--uninstall-info", help="Show uninstall instructions"),
     setup: bool = typer.Option(False, "--setup", help="Set up Dav: create .dav directory and template .env file"),
     update: bool = typer.Option(False, "--update", help="Update Dav to the latest version (preserves configuration)"),
+    auto_confirm: bool = typer.Option(
+        False,
+        "-y",
+        "--yes",
+        "--auto-yes",
+        help="Automatically confirm command execution when using --execute",
+    ),
 ):
     """Dav - An intelligent, context-aware AI assistant for the Linux terminal."""
     
@@ -107,7 +114,7 @@ def main(
     
     # Interactive mode
     if interactive:
-        run_interactive_mode(ai_backend, history_manager, session_manager, execute)
+        run_interactive_mode(ai_backend, history_manager, session_manager, execute, auto_confirm)
         return
     
     # Single query mode
@@ -139,10 +146,16 @@ def main(
             loading_message=f"Connecting to {backend_name}...",
         )
         
-        # Process response
-        _process_response(
-            response, query, ai_backend, history_manager, session_manager, execute
-        )
+    # Process response
+    _process_response(
+        response,
+        query,
+        ai_backend,
+        history_manager,
+        session_manager,
+        execute,
+        auto_confirm,
+    )
     
     except KeyboardInterrupt:
         console.print("\n\n[bold yellow]Interrupted by user[/bold yellow]")
@@ -191,7 +204,8 @@ def _process_response(
     ai_backend: AIBackend,
     history_manager: HistoryManager,
     session_manager: SessionManager,
-    execute: bool
+    execute: bool,
+    auto_confirm: bool
 ) -> None:
     """Process and save response, optionally execute commands."""
     # Save to history
@@ -207,15 +221,14 @@ def _process_response(
     session_manager.add_message("assistant", response)
     
     # Execute commands if requested
-    if execute:
-        execute_commands_from_response(response, confirm=True)
-    elif get_execute_permission():
-        # Auto-execute if permission is enabled (still with confirmation)
-        execute_commands_from_response(response, confirm=True)
+    should_execute = execute or get_execute_permission()
+    if should_execute:
+        confirm = not auto_confirm
+        execute_commands_from_response(response, confirm=confirm)
 
 
-def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager, 
-                        session_manager: SessionManager, execute: bool):
+def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
+                        session_manager: SessionManager, execute: bool, auto_confirm: bool):
     """Run interactive mode for multi-turn conversations."""
     console.print("[bold green]Dav Interactive Mode[/bold green]")
     console.print("Type 'exit' or 'quit' to exit, 'clear' to clear session\n")
@@ -252,7 +265,13 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
             
             # Process response
             _process_response(
-                response, query, ai_backend, history_manager, session_manager, execute
+                response,
+                query,
+                ai_backend,
+                history_manager,
+                session_manager,
+                execute,
+                auto_confirm,
             )
         
         except KeyboardInterrupt:

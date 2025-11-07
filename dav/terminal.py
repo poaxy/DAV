@@ -99,10 +99,10 @@ def confirm_action(message: str) -> bool:
                     tty.flush()
                     response = tty.readline()
             except OSError:
-                console.print("[yellow]No TTY available for confirmation. Skipping execution.[/yellow]")
+                console.print("[yellow]No TTY available for confirmation. Skipping execution (use --yes to auto-confirm).[/yellow]")
                 return False
     except EOFError:
-        console.print("[yellow]No input received. Skipping execution.[/yellow]")
+        console.print("[yellow]No input received. Skipping execution (use --yes to auto-confirm).[/yellow]")
         return False
 
     response = response.strip().lower()

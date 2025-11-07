@@ -229,6 +229,8 @@ dav --session debug "can you explain what that file does?"
 ### Command Execution
 ```bash
 dav "show me running processes" --execute
+# Auto-confirm execution without prompts (use with caution)
+dav "remove .log files" --execute --yes
 ```
 
 ### View History
