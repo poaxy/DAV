@@ -1,5 +1,6 @@
 """Terminal formatting and rendering for Dav."""
 
+import sys
 from typing import Iterator, Optional, ContextManager
 from rich.console import Console
 from rich.markdown import Markdown
@@ -84,7 +85,27 @@ def render_command(command: str) -> None:
 
 def confirm_action(message: str) -> bool:
     """Confirm an action with the user."""
-    response = input(f"{message} (y/N): ").strip().lower()
+    prompt = f"{message} (y/N): "
+    response = ""
+
+    try:
+        if sys.stdin.isatty():
+            response = input(prompt)
+        else:
+            # Attempt to prompt using /dev/tty when stdin is not interactive (e.g. piped input)
+            try:
+                with open("/dev/tty", "r+") as tty:
+                    tty.write(prompt)
+                    tty.flush()
+                    response = tty.readline()
+            except OSError:
+                console.print("[yellow]No TTY available for confirmation. Skipping execution.[/yellow]")
+                return False
+    except EOFError:
+        console.print("[yellow]No input received. Skipping execution.[/yellow]")
+        return False
+
+    response = response.strip().lower()
     return response in ("y", "yes")
 
 

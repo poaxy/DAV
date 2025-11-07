@@ -28,7 +28,12 @@ def main(
     query: Optional[str] = typer.Argument(None, help="Natural language query"),
     interactive: bool = typer.Option(False, "-i", "--interactive", help="Interactive mode for multi-turn conversations"),
     session: Optional[str] = typer.Option(None, "--session", help="Session ID to maintain context"),
-    execute: bool = typer.Option(False, "--execute", help="Execute commands found in response (with confirmation)"),
+    execute: bool = typer.Option(
+        False,
+        "--execute",
+        "--execution",
+        help="Execute commands found in response (with confirmation)",
+    ),
     history: bool = typer.Option(False, "--history", help="Show query history"),
     backend: Optional[str] = typer.Option(None, "--backend", help="AI backend (openai or anthropic)"),
     model: Optional[str] = typer.Option(None, "--model", help="AI model to use"),
