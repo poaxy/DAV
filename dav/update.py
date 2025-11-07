@@ -1,5 +1,6 @@
 """Update functionality for Dav."""
 
+import os
 import subprocess
 import sys
 import shutil
@@ -86,50 +87,34 @@ def update_with_pipx() -> bool:
     """Update Dav using pipx."""
     try:
         console.print("[cyan]Updating Dav using pipx...[/cyan]")
-        
-        # First try upgrade
-        result = subprocess.run(
-            ['pipx', 'upgrade', 'dav-ai'],
+        env = {**os.environ, "PIP_NO_CACHE_DIR": "1"}
+
+        # Uninstall existing package (ignore errors if not installed)
+        subprocess.run(
+            ['pipx', 'uninstall', '--yes', 'dav-ai'],
             capture_output=True,
             text=True,
             timeout=120
         )
-        
-        if result.returncode == 0:
-            console.print("[green]✓ Dav updated successfully![/green]")
-            return True
-        
-        # If upgrade fails, try reinstall
-        console.print("[yellow]Upgrade command failed, trying reinstall...[/yellow]")
+
+        # Reinstall from GitHub
         result = subprocess.run(
-            ['pipx', 'reinstall', '--force', 'git+https://github.com/poaxy/DAV.git'],
+            ['pipx', 'install', 'git+https://github.com/poaxy/DAV.git'],
             capture_output=True,
             text=True,
-            timeout=120
+            timeout=300,
+            env=env
         )
-        
+
         if result.returncode == 0:
             console.print("[green]✓ Dav updated successfully![/green]")
             return True
-        
-        # If reinstall with package name fails, try with package name
-        console.print("[yellow]Trying upgrade with package name...[/yellow]")
-        result = subprocess.run(
-            ['pipx', 'upgrade', 'git+https://github.com/poaxy/DAV.git'],
-            capture_output=True,
-            text=True,
-            timeout=120
-        )
-        
-        if result.returncode == 0:
-            console.print("[green]✓ Dav updated successfully![/green]")
-            return True
-        
+
         console.print(f"[red]✗ Update failed:[/red] {result.stderr}")
         if result.stdout:
             console.print(f"[yellow]Output:[/yellow] {result.stdout}")
         return False
-        
+
     except subprocess.TimeoutExpired:
         console.print("[red]✗ Update timed out[/red]")
         return False
@@ -145,12 +130,14 @@ def update_with_pip_user() -> bool:
     """Update Dav using pip --user."""
     try:
         console.print("[cyan]Updating Dav using pip...[/cyan]")
+        env = {**os.environ, "PIP_NO_CACHE_DIR": "1"}
         result = subprocess.run(
-            [sys.executable, '-m', 'pip', 'install', '--upgrade', '--user', 
+            [sys.executable, '-m', 'pip', 'install', '--upgrade', '--force-reinstall', '--no-deps', '--user',
              'git+https://github.com/poaxy/DAV.git'],
             capture_output=True,
             text=True,
-            timeout=120
+            timeout=300,
+            env=env
         )
         
         if result.returncode == 0:
@@ -171,12 +158,14 @@ def update_with_venv() -> bool:
     """Update Dav in current virtual environment."""
     try:
         console.print("[cyan]Updating Dav in current virtual environment...[/cyan]")
+        env = {**os.environ, "PIP_NO_CACHE_DIR": "1"}
         result = subprocess.run(
-            [sys.executable, '-m', 'pip', 'install', '--upgrade', 
+            [sys.executable, '-m', 'pip', 'install', '--upgrade', '--force-reinstall', '--no-deps',
              'git+https://github.com/poaxy/DAV.git'],
             capture_output=True,
             text=True,
-            timeout=120
+            timeout=300,
+            env=env
         )
         
         if result.returncode == 0:
