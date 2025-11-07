@@ -145,18 +145,18 @@ def main(
             ai_backend.stream_response(full_prompt, system_prompt=system_prompt),
             loading_message=f"Connecting to {backend_name}...",
         )
-        
-    # Process response
-    _process_response(
-        response,
-        query,
-        ai_backend,
-        history_manager,
-        session_manager,
-        execute,
-        auto_confirm,
-    )
-    
+
+        # Process response
+        _process_response(
+            response,
+            query,
+            ai_backend,
+            history_manager,
+            session_manager,
+            execute,
+            auto_confirm,
+        )
+
     except KeyboardInterrupt:
         console.print("\n\n[bold yellow]Interrupted by user[/bold yellow]")
         sys.exit(0)
