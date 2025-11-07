@@ -1,6 +1,7 @@
 """Secure command execution for Dav."""
 
 import glob
+import os
 import re
 import subprocess
 import shlex
