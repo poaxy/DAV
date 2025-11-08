@@ -17,6 +17,7 @@ from dav.terminal import (
     render_error,
     render_info,
     render_streaming_response_with_loading,
+    render_warning,
     show_loading_status,
 )
 from dav.uninstall import list_dav_files, remove_dav_files, show_uninstall_info

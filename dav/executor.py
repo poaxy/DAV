@@ -274,7 +274,10 @@ def _execute_command_streaming(command: str, cwd: Optional[str] = None, env: Opt
             stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS)
             return False, '\n'.join(stdout_lines), '\n'.join(stderr_lines), 124  # Timeout exit code
         
-        returncode = returncode_container[0] or 1
+        # Get return code (handle None case, but preserve 0 for success)
+        returncode = returncode_container[0]
+        if returncode is None:
+            returncode = 1  # Default to failure if return code is None
         
         # Close pipes to signal EOF to reader threads
         process.stdout.close()
