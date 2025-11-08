@@ -172,7 +172,8 @@ def show_rainbow_loading(message: str = "Generating response...") -> ContextMana
             # Cycle message color too
             color_idx = self.spinner.current_color
             msg_color = RAINBOW_COLORS[(color_idx - 1) % len(RAINBOW_COLORS)]
-            return Text(f"{spinner_char} [{msg_color}]{self.message}[/{msg_color}]")
+            # Return a string with Rich markup instead of Text object
+            return f"{spinner_char} [{msg_color}]{self.message}[/{msg_color}]"
         
         def stop(self):
             """Stop the generator."""
