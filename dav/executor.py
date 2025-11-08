@@ -17,6 +17,9 @@ from dav.terminal import render_error, render_warning, render_info, render_comma
 COMMAND_TIMEOUT_SECONDS = 300  # 5 minutes timeout for command execution
 THREAD_JOIN_TIMEOUT_SECONDS = 1  # Timeout for thread joining
 
+# Regex pattern for valid environment variable names
+ENV_VAR_NAME_PATTERN = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+
 # Dangerous command patterns that should be blocked
 DANGEROUS_PATTERNS = [
     r'\brm\s+-rf\s+/',  # rm -rf on root
@@ -109,12 +112,47 @@ def extract_commands(text: str) -> List[str]:
     return unique_commands
 
 
+def _parse_env_vars_and_command(command: str) -> Tuple[Dict[str, str], List[str]]:
+    """
+    Parse environment variables and command from a command string.
+    
+    Example: "VAR=value cmd arg" -> ({"VAR": "value"}, ["cmd", "arg"])
+    
+    Returns:
+        Tuple of (env_vars_dict, command_parts_list)
+    """
+    env_vars: Dict[str, str] = {}
+    parts = shlex.split(command)
+    
+    # Extract environment variable assignments from the beginning
+    command_start = 0
+    for i, part in enumerate(parts):
+        # Check if this part looks like an environment variable assignment (VAR=value)
+        if '=' in part and not part.startswith('-'):
+            # Check if it's a valid env var name (starts with letter/underscore, contains alphanumeric/underscore)
+            var_part, value_part = part.split('=', 1)
+            if ENV_VAR_NAME_PATTERN.match(var_part):
+                env_vars[var_part] = value_part
+                command_start = i + 1
+            else:
+                # Not an env var, stop parsing
+                break
+        else:
+            # Not an env var assignment, stop parsing
+            break
+    
+    # Get the actual command parts (everything after env vars)
+    command_parts = parts[command_start:] if command_start < len(parts) else parts
+    
+    return env_vars, command_parts
+
+
 def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = None, stream_output: bool = True) -> Tuple[bool, str, str]:
     """
     Execute a command securely with real-time output streaming.
     
     Args:
-        command: Command to execute
+        command: Command to execute (may include env vars like VAR=value cmd)
         confirm: Whether to ask for confirmation
         cwd: Working directory for command execution
         stream_output: If True, stream output in real-time; if False, capture and return
@@ -134,13 +172,13 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
             return False, "", "User cancelled"
     
     try:
-        # Use shlex to safely parse the command
-        # This prevents shell injection by avoiding shell=True
-        parts = shlex.split(command)
+        # Parse environment variables and command
+        env_vars, parts = _parse_env_vars_and_command(command)
+        
         if not parts:
             return False, "", "Empty command"
         
-        # Expand environment variables and user (~)
+        # Expand environment variables and user (~) in command parts
         parts = [os.path.expandvars(os.path.expanduser(part)) for part in parts]
 
         # Expand glob patterns (e.g., *.log) since we're not using a shell
@@ -156,10 +194,14 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
                 expanded_parts.append(part)
 
         parts = expanded_parts
+        
+        # Merge environment variables with current environment
+        env = os.environ.copy()
+        env.update(env_vars)
 
         if stream_output:
             # Stream output in real-time using Popen
-            return _execute_command_streaming(parts, cwd)
+            return _execute_command_streaming(parts, cwd, env)
         else:
             # Capture output (for backward compatibility)
             result = subprocess.run(
@@ -168,6 +210,7 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
                 text=True,
                 timeout=COMMAND_TIMEOUT_SECONDS,
                 cwd=cwd,
+                env=env,
             )
             return result.returncode == 0, result.stdout, result.stderr
     
@@ -179,9 +222,14 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
         return False, "", str(e)
 
 
-def _execute_command_streaming(parts: List[str], cwd: Optional[str] = None) -> Tuple[bool, str, str]:
+def _execute_command_streaming(parts: List[str], cwd: Optional[str] = None, env: Optional[Dict[str, str]] = None) -> Tuple[bool, str, str]:
     """
     Execute a command with real-time output streaming.
+    
+    Args:
+        parts: Command parts to execute
+        cwd: Working directory
+        env: Environment variables (merged with os.environ)
     
     Returns:
         (success, stdout, stderr)
@@ -198,6 +246,7 @@ def _execute_command_streaming(parts: List[str], cwd: Optional[str] = None) -> T
             text=True,
             bufsize=1,  # Line buffered
             cwd=cwd,
+            env=env,
         )
         
         # Read stdout and stderr in real-time
