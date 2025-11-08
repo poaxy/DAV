@@ -1,7 +1,7 @@
 """Terminal formatting and rendering for Dav."""
 
 import sys
-from typing import Iterator, Optional, ContextManager
+from typing import Iterator, Optional, ContextManager, Any
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.syntax import Syntax
@@ -11,6 +11,10 @@ from rich.text import Text
 from rich.status import Status
 
 console = Console()
+
+# Constants
+RAINBOW_COLORS = ["red", "yellow", "green", "cyan", "blue", "magenta"]
+STREAM_UPDATE_THRESHOLD = 20  # Only update every N characters to reduce flashing
 
 
 def render_streaming_response(stream: Iterator[str], show_markdown: bool = True) -> str:
@@ -119,20 +123,95 @@ def show_loading_status(message: str = "Processing...") -> ContextManager[Status
     )
 
 
+class RainbowSpinner:
+    """Custom spinner that cycles through rainbow colors."""
+    
+    def __init__(self, frames: list = None):
+        if frames is None:
+            # Default spinner frames
+            frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        self.frames = frames
+        self.current_frame = 0
+        self.current_color = 0
+    
+    def __iter__(self):
+        return self
+    
+    def __next__(self):
+        frame = self.frames[self.current_frame]
+        color = RAINBOW_COLORS[self.current_color]
+        
+        # Format with current rainbow color
+        colored_frame = f"[{color}]{frame}[/{color}]"
+        
+        # Advance to next frame and color
+        self.current_frame = (self.current_frame + 1) % len(self.frames)
+        self.current_color = (self.current_color + 1) % len(RAINBOW_COLORS)
+        
+        return colored_frame
+
+
+def show_rainbow_loading(message: str = "Generating response...") -> ContextManager[Any]:
+    """Show a rainbow-colored loading spinner with animated text."""
+    rainbow_spinner = RainbowSpinner()
+    
+    class RainbowStatusGenerator:
+        """Generator for rainbow status updates."""
+        def __init__(self, spinner: RainbowSpinner, msg: str):
+            self.spinner = spinner
+            self.message = msg
+            self.running = True
+        
+        def __iter__(self):
+            return self
+        
+        def __next__(self):
+            if not self.running:
+                raise StopIteration
+            spinner_char = next(self.spinner)
+            # Cycle message color too
+            color_idx = self.spinner.current_color
+            msg_color = RAINBOW_COLORS[(color_idx - 1) % len(RAINBOW_COLORS)]
+            return Text(f"{spinner_char} [{msg_color}]{self.message}[/{msg_color}]")
+        
+        def stop(self):
+            """Stop the generator."""
+            self.running = False
+    
+    generator = RainbowStatusGenerator(rainbow_spinner, message)
+    
+    # Create a Live context that will stop when we exit
+    class RainbowLiveContext:
+        def __init__(self, gen, console):
+            self.gen = gen
+            self.console = console
+            self.live = None
+        
+        def __enter__(self):
+            self.live = Live(self.gen, console=self.console, refresh_per_second=10)
+            self.live.__enter__()
+            return self
+        
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            self.gen.stop()
+            if self.live:
+                self.live.__exit__(exc_type, exc_val, exc_tb)
+    
+    return RainbowLiveContext(generator, console)
+
+
 def render_streaming_response_with_loading(
     stream: Iterator[str], 
     loading_message: str = "Generating response...",
     show_markdown: bool = True
 ) -> str:
-    """Render streaming AI response with loading indicator before first chunk."""
+    """Render streaming AI response with rainbow loading indicator before first chunk."""
     accumulated = ""
     buffer = ""
-    first_chunk_received = False
     last_update_length = 0
-    update_threshold = 20  # Only update every N characters to reduce flashing
     
-    # Show loading status while waiting for first chunk
-    with show_loading_status(loading_message):
+    # Show rainbow loading spinner while waiting for first chunk
+    with show_rainbow_loading(loading_message):
         try:
             # Try to get first chunk (this will block until data arrives)
             first_chunk = next(stream, None)
@@ -141,7 +220,6 @@ def render_streaming_response_with_loading(
                 return ""
             
             # We have content, now switch to Live rendering
-            first_chunk_received = True
             accumulated += first_chunk
             buffer += first_chunk
         
@@ -188,12 +266,12 @@ def render_streaming_response_with_loading(
                         # Update on paragraph breaks
                         should_update = True
                         buffer = ""
-                    elif new_content_length >= update_threshold:
+                    elif new_content_length >= STREAM_UPDATE_THRESHOLD:
                         # Update periodically to show progress
                         should_update = True
                 else:
                     # For non-markdown, update more frequently but still throttled
-                    if new_content_length >= update_threshold:
+                    if new_content_length >= STREAM_UPDATE_THRESHOLD:
                         should_update = True
                 
                 if should_update:

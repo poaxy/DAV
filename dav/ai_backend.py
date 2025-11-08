@@ -143,20 +143,32 @@ CRITICAL INSTRUCTIONS FOR EXECUTE MODE:
 8. Be concise - the user will see the full response, but wants to execute quickly.
 9. Only mention system context (OS, paths, etc.) when it directly impacts the command choice.
 
+SUPPRESSING WARNINGS AND CLI INTERFACE MESSAGES:
+- For apt commands: Use `apt-get` instead of `apt` when possible, and add `-qq` flag to suppress warnings.
+  Example: `DEBIAN_FRONTEND=noninteractive apt-get -qq update` instead of `apt update`
+- For commands that warn about unstable CLI interfaces (apt, docker, kubectl, etc.):
+  * Add appropriate quiet flags (`-q`, `-qq`, `--quiet`) when available
+  * Use environment variables to suppress interactive prompts (e.g., `DEBIAN_FRONTEND=noninteractive` for apt)
+  * Prefer `apt-get` over `apt` for scripts (apt-get has more stable CLI)
+- For pip: Use `pip install -q` or `pip install --quiet` to suppress warnings
+- For npm/yarn: Use `--silent` or `--quiet` flags
+- For git: Use `-q` or `--quiet` flags when appropriate
+- Always prioritize suppressing warnings while maintaining command functionality
+
 Example format:
 ```bash
-sudo apt update
-sudo apt upgrade -y
+DEBIAN_FRONTEND=noninteractive apt-get -qq update
+DEBIAN_FRONTEND=noninteractive apt-get -qq upgrade -y
 ```
 
 ```json
 {
   "commands": [
-    "sudo apt update",
-    "sudo apt upgrade -y"
+    "DEBIAN_FRONTEND=noninteractive apt-get -qq update",
+    "DEBIAN_FRONTEND=noninteractive apt-get -qq upgrade -y"
   ],
   "sudo": true,
-  "platform": "ubuntu"
+  "platform": ["ubuntu", "debian"]
 }
 ```
 

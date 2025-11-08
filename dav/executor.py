@@ -1,5 +1,4 @@
 """Command execution utilities for Dav."""
-"""Secure command execution for Dav."""
 
 import glob
 import os
@@ -7,11 +6,16 @@ import re
 import shlex
 import subprocess
 import sys
+import threading
 from typing import Optional, Tuple, List, Dict
 
 from dav.command_plan import CommandPlan
 from dav.terminal import render_error, render_warning, render_info, render_command, confirm_action
 
+
+# Constants
+COMMAND_TIMEOUT_SECONDS = 300  # 5 minutes timeout for command execution
+THREAD_JOIN_TIMEOUT_SECONDS = 1  # Timeout for thread joining
 
 # Dangerous command patterns that should be blocked
 DANGEROUS_PATTERNS = [
@@ -105,9 +109,15 @@ def extract_commands(text: str) -> List[str]:
     return unique_commands
 
 
-def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = None) -> Tuple[bool, str, str]:
+def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = None, stream_output: bool = True) -> Tuple[bool, str, str]:
     """
-    Execute a command securely.
+    Execute a command securely with real-time output streaming.
+    
+    Args:
+        command: Command to execute
+        confirm: Whether to ask for confirmation
+        cwd: Working directory for command execution
+        stream_output: If True, stream output in real-time; if False, capture and return
     
     Returns:
         (success, stdout, stderr)
@@ -147,16 +157,19 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
 
         parts = expanded_parts
 
-        # Execute the command
-        result = subprocess.run(
-            parts,
-            capture_output=True,
-            text=True,
-            timeout=30,  # 30 second timeout
-            cwd=cwd,
-        )
-        
-        return result.returncode == 0, result.stdout, result.stderr
+        if stream_output:
+            # Stream output in real-time using Popen
+            return _execute_command_streaming(parts, cwd)
+        else:
+            # Capture output (for backward compatibility)
+            result = subprocess.run(
+                parts,
+                capture_output=True,
+                text=True,
+                timeout=COMMAND_TIMEOUT_SECONDS,
+                cwd=cwd,
+            )
+            return result.returncode == 0, result.stdout, result.stderr
     
     except subprocess.TimeoutExpired:
         render_error("Command execution timed out")
@@ -164,6 +177,90 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
     except Exception as e:
         render_error(f"Error executing command: {str(e)}")
         return False, "", str(e)
+
+
+def _execute_command_streaming(parts: List[str], cwd: Optional[str] = None) -> Tuple[bool, str, str]:
+    """
+    Execute a command with real-time output streaming.
+    
+    Returns:
+        (success, stdout, stderr)
+    """
+    stdout_lines: List[str] = []
+    stderr_lines: List[str] = []
+    
+    try:
+        # Start process with unbuffered output
+        process = subprocess.Popen(
+            parts,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,  # Line buffered
+            cwd=cwd,
+        )
+        
+        # Read stdout and stderr in real-time
+        def read_stdout():
+            """Read stdout line by line and print immediately."""
+            for line in iter(process.stdout.readline, ''):
+                if not line:
+                    break
+                line = line.rstrip('\n\r')
+                stdout_lines.append(line)
+                print(line)  # Print immediately
+                sys.stdout.flush()
+        
+        def read_stderr():
+            """Read stderr line by line and print immediately."""
+            for line in iter(process.stderr.readline, ''):
+                if not line:
+                    break
+                line = line.rstrip('\n\r')
+                stderr_lines.append(line)
+                print(line, file=sys.stderr)  # Print immediately
+                sys.stderr.flush()
+        
+        # Start reader threads
+        stdout_thread = threading.Thread(target=read_stdout, daemon=True)
+        stderr_thread = threading.Thread(target=read_stderr, daemon=True)
+        
+        stdout_thread.start()
+        stderr_thread.start()
+        
+        # Wait for process to complete (with timeout handling)
+        # Use threading to implement timeout since process.wait() doesn't support timeout
+        process_finished = threading.Event()
+        returncode_container = [None]
+        
+        def wait_for_process():
+            returncode_container[0] = process.wait()
+            process_finished.set()
+        
+        wait_thread = threading.Thread(target=wait_for_process, daemon=True)
+        wait_thread.start()
+        
+        # Wait for process to complete (with timeout)
+        if not process_finished.wait(timeout=COMMAND_TIMEOUT_SECONDS):
+            process.kill()
+            render_error("Command execution timed out")
+            return False, '\n'.join(stdout_lines), '\n'.join(stderr_lines)
+        
+        returncode = returncode_container[0]
+        
+        # Wait for threads to finish reading
+        stdout_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS)
+        stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS)
+        
+        success = returncode == 0
+        stdout = '\n'.join(stdout_lines)
+        stderr = '\n'.join(stderr_lines)
+        
+        return success, stdout, stderr
+        
+    except Exception as e:
+        render_error(f"Error executing command: {str(e)}")
+        return False, '\n'.join(stdout_lines), '\n'.join(stderr_lines)
 
 
 def _platform_matches(plan: CommandPlan, context: Optional[Dict]) -> bool:
@@ -183,9 +280,16 @@ def _platform_matches(plan: CommandPlan, context: Optional[Dict]) -> bool:
     return bool(candidates & values)
 
 
+def _print_command_output(stdout: str, stderr: str) -> None:
+    """Print command output to appropriate streams."""
+    if stdout:
+        print(stdout)
+    if stderr:
+        print(stderr, file=sys.stderr)
+
+
 def execute_plan(plan: CommandPlan, confirm: bool = True, context: Optional[Dict] = None) -> None:
     """Execute a structured command plan."""
-
     render_info("Command plan received:")
     for idx, command in enumerate(plan.commands, 1):
         render_command(f"{command}")
@@ -209,10 +313,7 @@ def execute_plan(plan: CommandPlan, confirm: bool = True, context: Optional[Dict
         success, stdout, stderr = execute_command(command, confirm=False, cwd=plan.cwd)
 
         if success:
-            if stdout:
-                print(stdout)
-            if stderr:
-                print(stderr, file=sys.stderr)
+            _print_command_output(stdout, stderr)
         else:
             render_error(f"Command failed: {command}")
             if stderr:
@@ -247,10 +348,7 @@ def execute_commands_from_response(
         success, stdout, stderr = execute_command(command, confirm=confirm)
         
         if success:
-            if stdout:
-                print(stdout)
-            if stderr:
-                print(stderr, file=sys.stderr)
+            _print_command_output(stdout, stderr)
         else:
             render_error(f"Command failed: {command}")
             if stderr:

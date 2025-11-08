@@ -147,7 +147,7 @@ def main(
         backend_name = ai_backend.backend.title()
         response = render_streaming_response_with_loading(
             ai_backend.stream_response(full_prompt, system_prompt=system_prompt),
-            loading_message=f"Connecting to {backend_name}...",
+            loading_message=f"Generating response with {backend_name}...",
         )
 
         # Process response
@@ -186,7 +186,7 @@ def _build_prompt_with_context(
         execute_mode: Whether in execute mode (affects system prompt)
     
     Returns:
-        (full_prompt, system_prompt)
+        Tuple of (context_dict, context_string, system_prompt)
     """
     with show_loading_status("Building context..."):
         context = build_context(query=query, stdin_content=stdin_content)
@@ -279,7 +279,7 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
             console.print()  # Empty line
             response = render_streaming_response_with_loading(
                 ai_backend.stream_response(full_prompt, system_prompt=system_prompt),
-                loading_message=f"Connecting to {backend_name}...",
+                loading_message=f"Generating response with {backend_name}...",
             )
             console.print()  # Empty line
             
