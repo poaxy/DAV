@@ -274,10 +274,20 @@ def _execute_command_streaming(command: str, cwd: Optional[str] = None, env: Opt
             stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS)
             return False, '\n'.join(stdout_lines), '\n'.join(stderr_lines), 124  # Timeout exit code
         
+        # Ensure wait thread has completed before reading return code
+        wait_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS)
+        
         # Get return code (handle None case, but preserve 0 for success)
         returncode = returncode_container[0]
         if returncode is None:
-            returncode = 1  # Default to failure if return code is None
+            # If return code is still None after waiting, the process may have failed
+            # Try to get it directly from the process
+            try:
+                returncode = process.poll()
+                if returncode is None:
+                    returncode = 1  # Default to failure if still None
+            except Exception:
+                returncode = 1  # Default to failure on exception
         
         # Close pipes to signal EOF to reader threads
         process.stdout.close()
