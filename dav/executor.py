@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -285,18 +286,27 @@ def _execute_command_streaming(command: str, cwd: Optional[str] = None, env: Opt
             try:
                 returncode = process.poll()
                 if returncode is None:
-                    returncode = 1  # Default to failure if still None
+                    # Process is still running or hasn't been polled yet
+                    # Wait a bit more and try again
+                    time.sleep(0.1)
+                    returncode = process.poll()
+                    if returncode is None:
+                        returncode = 1  # Default to failure if still None
             except Exception:
                 returncode = 1  # Default to failure on exception
         
-        # Close pipes to signal EOF to reader threads
+        # Close pipes to signal EOF to reader threads (do this AFTER getting return code)
+        # This allows reader threads to finish reading any remaining data
         process.stdout.close()
         process.stderr.close()
         
         # Wait for threads to finish reading all output
+        # Give them time to process the EOF signal and finish reading
         stdout_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS * 5)  # Longer timeout for normal completion
         stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS * 5)
         
+        # Now determine success based on return code
+        # For piped commands, the return code is from the last command in the pipe
         success = returncode == 0
         stdout = '\n'.join(stdout_lines)
         stderr = '\n'.join(stderr_lines)
