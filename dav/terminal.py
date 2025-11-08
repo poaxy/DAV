@@ -157,7 +157,8 @@ class RainbowSpinner:
 def show_rainbow_loading(message: str = "Generating response...") -> ContextManager[Any]:
     """Show a rainbow-colored loading spinner with animated text."""
     rainbow_spinner = RainbowSpinner()
-    status_text = Text()
+    # Use a list to hold the current text content (mutable container for Live)
+    current_text = [Text()]
     running = threading.Event()
     running.set()
     
@@ -165,26 +166,38 @@ def show_rainbow_loading(message: str = "Generating response...") -> ContextMana
         """Update spinner in a loop."""
         while running.is_set():
             spinner_char, spinner_color = rainbow_spinner.get_next()
-            # Clear and rebuild the text with rainbow colors
-            status_text.clear()
-            status_text.append(spinner_char, style=spinner_color)
-            status_text.append(f" {message}", style=spinner_color)
+            # Create new Text object with rainbow colors
+            new_text = Text()
+            new_text.append(spinner_char, style=spinner_color)
+            new_text.append(f" {message}", style=spinner_color)
+            current_text[0] = new_text  # Update the mutable container
             time.sleep(SPINNER_UPDATE_INTERVAL)
     
     # Start spinner update thread
     spinner_thread = threading.Thread(target=update_spinner, daemon=True)
     spinner_thread.start()
     
-    # Use Live with the Text object
+    # Use Live with a renderable that reads from the mutable container
+    class RainbowRenderable:
+        """Renderable that displays the current spinner text."""
+        def __init__(self, text_container):
+            self.text_container = text_container
+        
+        def __rich_console__(self, console, options):
+            yield self.text_container[0]
+    
+    renderable = RainbowRenderable(current_text)
+    
+    # Use Live with the renderable
     class RainbowLiveContext:
-        def __init__(self, text_obj, run_event, thread):
-            self.text = text_obj
+        def __init__(self, renderable_obj, run_event, thread):
+            self.renderable = renderable_obj
             self.running = run_event
             self.thread = thread
             self.live = None
         
         def __enter__(self):
-            self.live = Live(self.text, console=console, refresh_per_second=10)
+            self.live = Live(self.renderable, console=console, refresh_per_second=10)
             self.live.__enter__()
             return self
         
@@ -195,7 +208,7 @@ def show_rainbow_loading(message: str = "Generating response...") -> ContextMana
             if self.live:
                 self.live.__exit__(exc_type, exc_val, exc_tb)
     
-    return RainbowLiveContext(status_text, running, spinner_thread)
+    return RainbowLiveContext(renderable, running, spinner_thread)
 
 
 def render_streaming_response_with_loading(
