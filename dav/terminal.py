@@ -1,7 +1,9 @@
 """Terminal formatting and rendering for Dav."""
 
 import sys
-from typing import Iterator, Optional, ContextManager, Any
+import threading
+import time
+from typing import Iterator, Optional, ContextManager, Any, Tuple
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.syntax import Syntax
@@ -15,6 +17,7 @@ console = Console()
 # Constants
 RAINBOW_COLORS = ["red", "yellow", "green", "cyan", "blue", "magenta"]
 STREAM_UPDATE_THRESHOLD = 20  # Only update every N characters to reduce flashing
+SPINNER_UPDATE_INTERVAL = 0.1  # Seconds between spinner frame updates
 
 
 def render_streaming_response(stream: Iterator[str], show_markdown: bool = True) -> str:
@@ -126,7 +129,7 @@ def show_loading_status(message: str = "Processing...") -> ContextManager[Status
 class RainbowSpinner:
     """Custom spinner that cycles through rainbow colors."""
     
-    def __init__(self, frames: list = None):
+    def __init__(self, frames: Optional[list] = None):
         if frames is None:
             # Default spinner frames
             frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -134,71 +137,65 @@ class RainbowSpinner:
         self.current_frame = 0
         self.current_color = 0
     
-    def __iter__(self):
-        return self
-    
-    def __next__(self):
+    def get_next(self) -> Tuple[str, str]:
+        """
+        Get next spinner frame and color.
+        
+        Returns:
+            Tuple of (frame_character, color_name)
+        """
         frame = self.frames[self.current_frame]
         color = RAINBOW_COLORS[self.current_color]
-        
-        # Format with current rainbow color
-        colored_frame = f"[{color}]{frame}[/{color}]"
         
         # Advance to next frame and color
         self.current_frame = (self.current_frame + 1) % len(self.frames)
         self.current_color = (self.current_color + 1) % len(RAINBOW_COLORS)
         
-        return colored_frame
+        return frame, color
 
 
 def show_rainbow_loading(message: str = "Generating response...") -> ContextManager[Any]:
     """Show a rainbow-colored loading spinner with animated text."""
     rainbow_spinner = RainbowSpinner()
+    status_text = Text()
+    running = threading.Event()
+    running.set()
     
-    class RainbowStatusGenerator:
-        """Generator for rainbow status updates."""
-        def __init__(self, spinner: RainbowSpinner, msg: str):
-            self.spinner = spinner
-            self.message = msg
-            self.running = True
-        
-        def __iter__(self):
-            return self
-        
-        def __next__(self):
-            if not self.running:
-                raise StopIteration
-            spinner_char = next(self.spinner)
-            # Cycle message color too
-            color_idx = self.spinner.current_color
-            msg_color = RAINBOW_COLORS[(color_idx - 1) % len(RAINBOW_COLORS)]
-            # Return a string with Rich markup instead of Text object
-            return f"{spinner_char} [{msg_color}]{self.message}[/{msg_color}]"
-        
-        def stop(self):
-            """Stop the generator."""
-            self.running = False
+    def update_spinner():
+        """Update spinner in a loop."""
+        while running.is_set():
+            spinner_char, spinner_color = rainbow_spinner.get_next()
+            # Clear and rebuild the text with rainbow colors
+            status_text.clear()
+            status_text.append(spinner_char, style=spinner_color)
+            status_text.append(f" {message}", style=spinner_color)
+            time.sleep(SPINNER_UPDATE_INTERVAL)
     
-    generator = RainbowStatusGenerator(rainbow_spinner, message)
+    # Start spinner update thread
+    spinner_thread = threading.Thread(target=update_spinner, daemon=True)
+    spinner_thread.start()
     
-    # Create a Live context that will stop when we exit
+    # Use Live with the Text object
     class RainbowLiveContext:
-        def __init__(self, gen, console):
-            self.gen = gen
-            self.console = console
+        def __init__(self, text_obj, run_event, thread):
+            self.text = text_obj
+            self.running = run_event
+            self.thread = thread
             self.live = None
         
         def __enter__(self):
-            self.live = Live(self.gen, console=self.console, refresh_per_second=10)
+            self.live = Live(self.text, console=console, refresh_per_second=10)
             self.live.__enter__()
             return self
         
         def __exit__(self, exc_type, exc_val, exc_tb):
-            self.gen.stop()
+            self.running.clear()
+            if self.thread.is_alive():
+                self.thread.join(timeout=0.2)
             if self.live:
                 self.live.__exit__(exc_type, exc_val, exc_tb)
     
-    return RainbowLiveContext(generator, console)
+    return RainbowLiveContext(status_text, running, spinner_thread)
 
 
 def render_streaming_response_with_loading(
