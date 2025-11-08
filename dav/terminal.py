@@ -155,7 +155,7 @@ class RainbowSpinner:
 
 
 def show_rainbow_loading(message: str = "Generating response...") -> ContextManager[Any]:
-    """Show a rainbow-colored loading spinner with animated text."""
+    """Show a rainbow-colored loading spinner with animated dots (no text)."""
     rainbow_spinner = RainbowSpinner()
     # Use a list to hold the current text content (mutable container for Live)
     current_text = [Text()]
@@ -166,10 +166,9 @@ def show_rainbow_loading(message: str = "Generating response...") -> ContextMana
         """Update spinner in a loop."""
         while running.is_set():
             spinner_char, spinner_color = rainbow_spinner.get_next()
-            # Create new Text object with rainbow colors
+            # Create new Text object with just the spinner character (no message text)
             new_text = Text()
             new_text.append(spinner_char, style=spinner_color)
-            new_text.append(f" {message}", style=spinner_color)
             current_text[0] = new_text  # Update the mutable container
             time.sleep(SPINNER_UPDATE_INTERVAL)
     
@@ -222,6 +221,7 @@ def render_streaming_response_with_loading(
     last_update_length = 0
     
     # Show rainbow loading spinner while waiting for first chunk
+    # The spinner will automatically disappear when we exit the context manager
     with show_rainbow_loading(loading_message):
         try:
             # Try to get first chunk (this will block until data arrives)
@@ -230,7 +230,7 @@ def render_streaming_response_with_loading(
                 console.print("[bold red]No response received[/bold red]")
                 return ""
             
-            # We have content, now switch to Live rendering
+            # We have content - spinner will disappear when context manager exits
             accumulated += first_chunk
             buffer += first_chunk
         
@@ -240,6 +240,8 @@ def render_streaming_response_with_loading(
         except Exception as e:
             console.print(f"[bold red]Error: {str(e)}[/bold red]")
             return ""
+    
+    # Spinner has now disappeared, continue with Live rendering
     
     # Now render the rest with Live
     with Live(console=console, refresh_per_second=15, transient=False) as live:
