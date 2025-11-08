@@ -146,7 +146,10 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
 
         if stream_output:
             # Stream output in real-time using Popen with shell
-            return _execute_command_streaming(command, cwd)
+            # Force unbuffered output by setting environment variable
+            env = os.environ.copy()
+            env['PYTHONUNBUFFERED'] = '1'
+            return _execute_command_streaming(command, cwd, env)
         else:
             # Capture output (for backward compatibility)
             result = subprocess.run(
@@ -167,13 +170,14 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
         return False, "", str(e)
 
 
-def _execute_command_streaming(command: str, cwd: Optional[str] = None) -> Tuple[bool, str, str]:
+def _execute_command_streaming(command: str, cwd: Optional[str] = None, env: Optional[Dict[str, str]] = None) -> Tuple[bool, str, str]:
     """
     Execute a command with real-time output streaming.
     
     Args:
         command: Command string to execute
         cwd: Working directory
+        env: Environment variables (merged with os.environ)
     
     Returns:
         (success, stdout, stderr)
@@ -182,6 +186,12 @@ def _execute_command_streaming(command: str, cwd: Optional[str] = None) -> Tuple
     stderr_lines: List[str] = []
     
     try:
+        # Prepare environment with unbuffered settings
+        process_env = os.environ.copy()
+        if env:
+            process_env.update(env)
+        process_env['PYTHONUNBUFFERED'] = '1'
+        
         # Start process with unbuffered output using shell
         process = subprocess.Popen(
             command,
@@ -189,30 +199,39 @@ def _execute_command_streaming(command: str, cwd: Optional[str] = None) -> Tuple
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            bufsize=1,  # Line buffered
+            bufsize=0,  # Unbuffered for immediate output
             cwd=cwd,
+            env=process_env,
         )
         
         # Read stdout and stderr in real-time
         def read_stdout():
             """Read stdout line by line and print immediately."""
-            for line in iter(process.stdout.readline, ''):
-                if not line:
-                    break
-                line = line.rstrip('\n\r')
-                stdout_lines.append(line)
-                print(line)  # Print immediately
-                sys.stdout.flush()
+            try:
+                for line in iter(process.stdout.readline, ''):
+                    if not line:
+                        break
+                    line = line.rstrip('\n\r')
+                    if line:  # Only append non-empty lines
+                        stdout_lines.append(line)
+                        print(line)  # Print immediately
+                        sys.stdout.flush()
+            except Exception:
+                pass  # Process may have closed stdout
         
         def read_stderr():
             """Read stderr line by line and print immediately."""
-            for line in iter(process.stderr.readline, ''):
-                if not line:
-                    break
-                line = line.rstrip('\n\r')
-                stderr_lines.append(line)
-                print(line, file=sys.stderr)  # Print immediately
-                sys.stderr.flush()
+            try:
+                for line in iter(process.stderr.readline, ''):
+                    if not line:
+                        break
+                    line = line.rstrip('\n\r')
+                    if line:  # Only append non-empty lines
+                        stderr_lines.append(line)
+                        print(line, file=sys.stderr)  # Print immediately
+                        sys.stderr.flush()
+            except Exception:
+                pass  # Process may have closed stderr
         
         # Start reader threads
         stdout_thread = threading.Thread(target=read_stdout, daemon=True)
@@ -237,13 +256,20 @@ def _execute_command_streaming(command: str, cwd: Optional[str] = None) -> Tuple
         if not process_finished.wait(timeout=COMMAND_TIMEOUT_SECONDS):
             process.kill()
             render_error("Command execution timed out")
+            # Give threads time to read remaining output
+            stdout_thread.join(timeout=2)
+            stderr_thread.join(timeout=2)
             return False, '\n'.join(stdout_lines), '\n'.join(stderr_lines)
         
         returncode = returncode_container[0]
         
-        # Wait for threads to finish reading
-        stdout_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS)
-        stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS)
+        # Close pipes to signal EOF to reader threads
+        process.stdout.close()
+        process.stderr.close()
+        
+        # Wait for threads to finish reading all output
+        stdout_thread.join(timeout=5)
+        stderr_thread.join(timeout=5)
         
         success = returncode == 0
         stdout = '\n'.join(stdout_lines)
