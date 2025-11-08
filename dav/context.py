@@ -1,10 +1,10 @@
 """Context detection and collection for Dav."""
 
 import os
-import sys
 import platform
+import sys
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 from dav.config import get_max_stdin_chars
 

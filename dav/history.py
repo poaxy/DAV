@@ -3,7 +3,8 @@
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
+
 from dav.config import get_history_db_path, get_history_enabled
 
 

@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Command plan parsing and validation helpers."""
+
+from __future__ import annotations
 
 import json
 import re

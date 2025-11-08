@@ -1,24 +1,25 @@
 """Command execution utilities for Dav."""
 
-import glob
 import os
 import re
-import shlex
 import subprocess
 import sys
 import threading
-from typing import Optional, Tuple, List, Dict
+from typing import Dict, List, Optional, Tuple
 
 from dav.command_plan import CommandPlan
-from dav.terminal import render_error, render_warning, render_info, render_command, confirm_action
+from dav.terminal import (
+    confirm_action,
+    render_command,
+    render_error,
+    render_info,
+    render_warning,
+)
 
 
 # Constants
 COMMAND_TIMEOUT_SECONDS = 300  # 5 minutes timeout for command execution
 THREAD_JOIN_TIMEOUT_SECONDS = 1  # Timeout for thread joining
-
-# Regex pattern for valid environment variable names
-ENV_VAR_NAME_PATTERN = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 
 # Dangerous command patterns that should be blocked
 DANGEROUS_PATTERNS = [
@@ -112,41 +113,6 @@ def extract_commands(text: str) -> List[str]:
     return unique_commands
 
 
-def _parse_env_vars_and_command(command: str) -> Tuple[Dict[str, str], List[str]]:
-    """
-    Parse environment variables and command from a command string.
-    
-    Example: "VAR=value cmd arg" -> ({"VAR": "value"}, ["cmd", "arg"])
-    
-    Returns:
-        Tuple of (env_vars_dict, command_parts_list)
-    """
-    env_vars: Dict[str, str] = {}
-    parts = shlex.split(command)
-    
-    # Extract environment variable assignments from the beginning
-    command_start = 0
-    for i, part in enumerate(parts):
-        # Check if this part looks like an environment variable assignment (VAR=value)
-        if '=' in part and not part.startswith('-'):
-            # Check if it's a valid env var name (starts with letter/underscore, contains alphanumeric/underscore)
-            var_part, value_part = part.split('=', 1)
-            if ENV_VAR_NAME_PATTERN.match(var_part):
-                env_vars[var_part] = value_part
-                command_start = i + 1
-            else:
-                # Not an env var, stop parsing
-                break
-        else:
-            # Not an env var assignment, stop parsing
-            break
-    
-    # Get the actual command parts (everything after env vars)
-    command_parts = parts[command_start:] if command_start < len(parts) else parts
-    
-    return env_vars, command_parts
-
-
 def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = None, stream_output: bool = True) -> Tuple[bool, str, str]:
     """
     Execute a command securely with real-time output streaming.
@@ -172,45 +138,24 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
             return False, "", "User cancelled"
     
     try:
-        # Parse environment variables and command
-        env_vars, parts = _parse_env_vars_and_command(command)
+        # Expand environment variables and user (~) in the command string
+        command = os.path.expandvars(os.path.expanduser(command))
         
-        if not parts:
+        if not command.strip():
             return False, "", "Empty command"
-        
-        # Expand environment variables and user (~) in command parts
-        parts = [os.path.expandvars(os.path.expanduser(part)) for part in parts]
-
-        # Expand glob patterns (e.g., *.log) since we're not using a shell
-        expanded_parts: List[str] = []
-        for part in parts:
-            if any(ch in part for ch in ['*', '?', '[']):
-                matches = glob.glob(part)
-                if matches:
-                    expanded_parts.extend(matches)
-                else:
-                    expanded_parts.append(part)
-            else:
-                expanded_parts.append(part)
-
-        parts = expanded_parts
-        
-        # Merge environment variables with current environment
-        env = os.environ.copy()
-        env.update(env_vars)
 
         if stream_output:
-            # Stream output in real-time using Popen
-            return _execute_command_streaming(parts, cwd, env)
+            # Stream output in real-time using Popen with shell
+            return _execute_command_streaming(command, cwd)
         else:
             # Capture output (for backward compatibility)
             result = subprocess.run(
-                parts,
+                command,
+                shell=True,
                 capture_output=True,
                 text=True,
                 timeout=COMMAND_TIMEOUT_SECONDS,
                 cwd=cwd,
-                env=env,
             )
             return result.returncode == 0, result.stdout, result.stderr
     
@@ -222,14 +167,13 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
         return False, "", str(e)
 
 
-def _execute_command_streaming(parts: List[str], cwd: Optional[str] = None, env: Optional[Dict[str, str]] = None) -> Tuple[bool, str, str]:
+def _execute_command_streaming(command: str, cwd: Optional[str] = None) -> Tuple[bool, str, str]:
     """
     Execute a command with real-time output streaming.
     
     Args:
-        parts: Command parts to execute
+        command: Command string to execute
         cwd: Working directory
-        env: Environment variables (merged with os.environ)
     
     Returns:
         (success, stdout, stderr)
@@ -238,15 +182,15 @@ def _execute_command_streaming(parts: List[str], cwd: Optional[str] = None, env:
     stderr_lines: List[str] = []
     
     try:
-        # Start process with unbuffered output
+        # Start process with unbuffered output using shell
         process = subprocess.Popen(
-            parts,
+            command,
+            shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,  # Line buffered
             cwd=cwd,
-            env=env,
         )
         
         # Read stdout and stderr in real-time

@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 from typing import Optional
+
 from dotenv import load_dotenv
 
 # Load .env file from user's home directory or current directory

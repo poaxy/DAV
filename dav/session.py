@@ -1,9 +1,10 @@
 """Session management for maintaining context across queries."""
 
 import json
-from pathlib import Path
-from typing import List, Dict, Optional
 from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional
+
 from dav.config import get_session_dir
 
 

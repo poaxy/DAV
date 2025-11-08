@@ -3,14 +3,15 @@
 import sys
 import threading
 import time
-from typing import Iterator, Optional, ContextManager, Any, Tuple
+from typing import Any, ContextManager, Iterator, Optional, Tuple
+
 from rich.console import Console
-from rich.markdown import Markdown
-from rich.syntax import Syntax
-from rich.panel import Panel
 from rich.live import Live
-from rich.text import Text
+from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.status import Status
+from rich.syntax import Syntax
+from rich.text import Text
 
 console = Console()
 

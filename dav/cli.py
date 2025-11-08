@@ -2,23 +2,24 @@
 
 import sys
 from typing import Dict, Optional, Tuple
+
 import typer
 from rich.console import Console
 
-from dav.context import build_context, format_context_for_prompt
 from dav.ai_backend import AIBackend, get_system_prompt
-from dav.terminal import (
-    render_streaming_response_with_loading,
-    render_error,
-    render_info,
-    show_loading_status,
-)
+from dav.command_plan import CommandPlanError, extract_command_plan
+from dav.config import get_default_backend, get_execute_permission
+from dav.context import build_context, format_context_for_prompt
+from dav.executor import execute_commands_from_response
 from dav.history import HistoryManager
 from dav.session import SessionManager
-from dav.command_plan import CommandPlanError, extract_command_plan
-from dav.executor import execute_commands_from_response
-from dav.config import get_default_backend, get_execute_permission
-from dav.uninstall import remove_dav_files, list_dav_files, show_uninstall_info
+from dav.terminal import (
+    render_error,
+    render_info,
+    render_streaming_response_with_loading,
+    show_loading_status,
+)
+from dav.uninstall import list_dav_files, remove_dav_files, show_uninstall_info
 
 app = typer.Typer(help="Dav - An intelligent, context-aware AI assistant for the Linux terminal")
 console = Console()
