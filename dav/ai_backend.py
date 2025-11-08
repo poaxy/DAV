@@ -146,24 +146,29 @@ RESPONSE FORMAT:
 COMMAND GUIDELINES:
 - Use OS-specific commands based on the system information provided (apt for Debian/Ubuntu, yum/dnf for RHEL/Fedora, etc.)
 - Prefer `apt-get` over `apt` for better script compatibility
-- Include `sudo` in commands when root privileges are needed
-- DO NOT use quiet flags (-q, -qq, --quiet) - the user needs to see output
+- **CRITICAL: Always use `sudo` for commands requiring root privileges:**
+  - System logs (`/var/log/*`, `journalctl`, `dmesg`)
+  - Package management (install/update/upgrade)
+  - System services and configuration
+  - Operations on system directories (`/etc`, `/usr`, `/opt`, `/var`)
+  - When in doubt, use `sudo` - better safe than permission denied
+- DO NOT use quiet flags (-q, -qq, --quiet) - user needs to see output
 - Commands should produce visible output so the user can monitor progress
 - Group related commands in execution order
 
 EXAMPLE:
-User: "show me how much storage is free"
+User: "show me kernel errors"
 
-Sure, let's check your available disk space.
+Sure, let's check for kernel errors in the system logs.
 
 ```bash
-df -h
+sudo dmesg | grep -i error
 ```
 
 ```json
 {
-  "commands": ["df -h"],
-  "sudo": false,
+  "commands": ["sudo dmesg | grep -i error"],
+  "sudo": true,
   "platform": ["ubuntu", "debian", "linux"]
 }
 ```"""

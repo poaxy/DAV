@@ -92,26 +92,51 @@ def extract_commands(text: str) -> List[str]:
             continue
         commands.append(candidate)
 
-    # Filter out false positives: single words that are just command names
-    # These are likely just mentions in text, not actual commands
+    # Filter out false positives
     filtered_commands = []
     common_command_names = {'bash', 'sh', 'zsh', 'apt', 'yum', 'dnf', 'pacman',
                             'pip', 'python', 'python3', 'git', 'curl', 'wget',
                             'sudo', 'ls', 'cd', 'pwd', 'cat', 'grep', 'find'}
+    
+    # Commands that require arguments (should be filtered if no args provided)
+    commands_requiring_args = {'less', 'more', 'cat', 'head', 'tail', 'grep', 'find',
+                               'sed', 'awk', 'cut', 'sort', 'uniq', 'wc',
+                               'chmod', 'chown', 'mv', 'cp', 'rm', 'mkdir', 'rmdir'}
 
     for cmd in commands:
         cmd = cmd.strip()
         if not cmd:
             continue
 
+        # Skip if it's just a file path (starts with / or ~ and doesn't contain a command)
+        if re.match(r'^[/~]', cmd) and not any(cmd.startswith(f'{c} ') for c in ['cat', 'less', 'more', 'head', 'tail', 'grep', 'find', 'ls', 'cd']):
+            # Check if it looks like a pure file path (no command before it)
+            if not re.match(r'^(cat|less|more|head|tail|grep|find|ls|cd|sudo\s+(cat|less|more|head|tail|grep|find|ls|cd))\s+', cmd):
+                continue
+
         # Skip if it's just a single word that's a common command name
         cmd_parts = cmd.split()
-        if len(cmd_parts) == 1 and cmd_parts[0].lower() in common_command_names:
-            continue
+        if len(cmd_parts) == 1:
+            if cmd_parts[0].lower() in common_command_names:
+                continue
+            # Skip single words that are commands requiring arguments
+            if cmd_parts[0].lower() in commands_requiring_args:
+                continue
+            # Skip if it's just a single short word without any operators
+            if not any(c in cmd for c in ['|', '&', ';', '>', '<', '(', ')', '[', ']']):
+                if len(cmd_parts[0]) < 3:
+                    continue
 
-        # Skip if it's just a single short word without any operators
-        if len(cmd_parts) == 1 and not any(c in cmd for c in ['|', '&', ';', '>', '<', '(', ')', '[', ']']):
-            if len(cmd_parts[0]) < 3:
+        # Skip partial commands (commands that require arguments but don't have them)
+        # e.g., "sudo less" without a filename
+        if len(cmd_parts) >= 2:
+            # Check if it's "sudo <command>" where command requires args but none provided
+            if cmd_parts[0].lower() == 'sudo' and len(cmd_parts) == 2:
+                if cmd_parts[1].lower() in commands_requiring_args:
+                    continue
+        elif len(cmd_parts) == 1:
+            # Single command that requires args
+            if cmd_parts[0].lower() in commands_requiring_args:
                 continue
 
         filtered_commands.append(cmd)
