@@ -141,6 +141,7 @@ def main(
         session_manager,
         stdin_content=stdin_content,
         execute_mode=execute,
+        interactive_mode=False,
     )
     
     # Stream response with loading indicator
@@ -161,6 +162,7 @@ def main(
             execute,
             auto_confirm,
             context_data,
+            is_interactive=False,
         )
 
     except KeyboardInterrupt:
@@ -176,6 +178,7 @@ def _build_prompt_with_context(
     session_manager: SessionManager,
     stdin_content: Optional[str] = None,
     execute_mode: bool = False,
+    interactive_mode: bool = False,
 ) -> Tuple[Dict, str, str]:
     """
     Build prompt with context and session history.
@@ -185,6 +188,7 @@ def _build_prompt_with_context(
         session_manager: Session manager instance
         stdin_content: Optional stdin content
         execute_mode: Whether in execute mode (affects system prompt)
+        interactive_mode: Whether in interactive mode (affects system prompt)
     
     Returns:
         Tuple of (context_dict, context_string, system_prompt)
@@ -193,13 +197,13 @@ def _build_prompt_with_context(
         context = build_context(query=query, stdin_content=stdin_content)
         context_str = format_context_for_prompt(context)
         
-        # Add session context if available
+        # Add session context if available (uses config defaults for limits)
         session_context = session_manager.get_conversation_context()
         if session_context:
             context_str = session_context + "\n" + context_str
         
-        # Get system prompt (with execute mode flag)
-        system_prompt = get_system_prompt(execute_mode=execute_mode)
+        # Get system prompt (with execute mode and interactive mode flags)
+        system_prompt = get_system_prompt(execute_mode=execute_mode, interactive_mode=interactive_mode)
     
     return context, context_str, system_prompt
 
@@ -212,9 +216,23 @@ def _process_response(
     session_manager: SessionManager,
     execute: bool,
     auto_confirm: bool,
-    context_data: Optional[Dict]
+    context_data: Optional[Dict],
+    is_interactive: bool = False,
 ) -> None:
-    """Process and save response, optionally execute commands."""
+    """
+    Process and save response, optionally execute commands.
+    
+    Args:
+        response: AI response text
+        query: User query
+        ai_backend: AI backend instance
+        history_manager: History manager instance
+        session_manager: Session manager instance
+        execute: Whether to execute commands
+        auto_confirm: Whether to auto-confirm execution
+        context_data: Context data dictionary
+        is_interactive: Whether in interactive mode (affects execution result storage)
+    """
     # Save to history
     history_manager.add_query(
         query=query,
@@ -237,15 +255,20 @@ def _process_response(
             render_warning(f"Command plan missing or invalid: {err}. Falling back to heuristic parsing.")
 
         confirm = not auto_confirm
+        execution_results = None
         if plan:
-            execute_commands_from_response(
+            execution_results = execute_commands_from_response(
                 response,
                 confirm=confirm,
                 context=context_data,
                 plan=plan,
             )
         else:
-            execute_commands_from_response(response, confirm=confirm, context=context_data)
+            execution_results = execute_commands_from_response(response, confirm=confirm, context=context_data)
+        
+        # In interactive mode, save execution results to session so AI can see them
+        if is_interactive and execution_results:
+            session_manager.add_execution_results(execution_results)
 
 
 def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
@@ -270,9 +293,9 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                 console.print("Session cleared.\n")
                 continue
             
-            # Build prompt with context (pass execute flag for system prompt)
+            # Build prompt with context (pass execute flag and interactive mode for system prompt)
             context_data, full_prompt, system_prompt = _build_prompt_with_context(
-                query, session_manager, execute_mode=execute
+                query, session_manager, execute_mode=execute, interactive_mode=True
             )
             
             # Stream response with loading indicator
@@ -294,6 +317,7 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                 execute,
                 auto_confirm,
                 context_data,
+                is_interactive=True,
             )
         
         except KeyboardInterrupt:

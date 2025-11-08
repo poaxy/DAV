@@ -5,7 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from dav.config import get_session_dir
+from dav.config import get_max_context_messages, get_max_context_tokens, get_session_dir
+from dav.executor import ExecutionResult
 
 
 class SessionManager:
@@ -48,9 +49,50 @@ class SessionManager:
     def add_message(self, role: str, content: str) -> None:
         """Add a message to the session."""
         self.messages.append({
+            "type": "message",
             "role": role,
             "content": content,
             "timestamp": datetime.now().isoformat(),
+        })
+        self._save_session()
+    
+    def add_execution_results(self, results: List[ExecutionResult]) -> None:
+        """Add execution results to the session."""
+        if not results:
+            return
+        
+        # Format execution results
+        execution_content = "## Command Execution Results\n\n"
+        for result in results:
+            status = "✓ Success" if result.success else "✗ Failed"
+            execution_content += f"**Command:** `{result.command}`\n"
+            execution_content += f"**Status:** {status} (exit code: {result.return_code})\n"
+            
+            if result.stderr:
+                execution_content += f"**Error Output:**\n```\n{result.stderr}\n```\n"
+            if result.stdout:
+                # Truncate very long stdout (keep first 1000 chars and last 500 chars)
+                stdout = result.stdout
+                if len(stdout) > 2000:
+                    stdout = stdout[:1000] + "\n[... truncated ...]\n" + stdout[-500:]
+                execution_content += f"**Output:**\n```\n{stdout}\n```\n"
+            execution_content += "\n"
+        
+        self.messages.append({
+            "type": "execution",
+            "role": "system",
+            "content": execution_content,
+            "timestamp": datetime.now().isoformat(),
+            "execution_results": [
+                {
+                    "command": r.command,
+                    "success": r.success,
+                    "stdout": r.stdout,
+                    "stderr": r.stderr,
+                    "return_code": r.return_code,
+                }
+                for r in results
+            ],
         })
         self._save_session()
     
@@ -64,16 +106,125 @@ class SessionManager:
         if self.session_file.exists():
             self.session_file.unlink()
     
-    def get_conversation_context(self) -> str:
-        """Get conversation context as a formatted string."""
+    def _estimate_tokens(self, text: str) -> int:
+        """Estimate token count (rough approximation: ~4 chars per token)."""
+        return len(text) // 4
+    
+    def _summarize_execution_result(self, msg: Dict) -> str:
+        """Summarize an execution result to save tokens."""
+        execution_results = msg.get("execution_results", [])
+        if not execution_results:
+            # Fallback to content if execution_results not available
+            content = msg.get("content", "")
+            return content[:1000]  # Truncate to ~250 tokens
+        
+        summary_lines = ["## Command Execution Results"]
+        for result in execution_results:
+            command = result.get("command", "")
+            success = result.get("success", False)
+            stdout = result.get("stdout", "")
+            stderr = result.get("stderr", "")
+            return_code = result.get("return_code", 1)
+            
+            status = "✓ Success" if success else "✗ Failed"
+            summary_lines.append(f"**Command:** `{command}`")
+            summary_lines.append(f"**Status:** {status} (exit code: {return_code})")
+            
+            # For failed commands, keep error output (important for troubleshooting)
+            if not success:
+                if stderr:
+                    # Keep first 500 chars of stderr
+                    stderr_preview = stderr[:500]
+                    if len(stderr) > 500:
+                        stderr_preview += "\n[... truncated ...]"
+                    summary_lines.append(f"**Error:**\n```\n{stderr_preview}\n```")
+                elif stdout:
+                    # If no stderr, show stdout (might contain error info)
+                    stdout_preview = stdout[:500]
+                    if len(stdout) > 500:
+                        stdout_preview += "\n[... truncated ...]"
+                    summary_lines.append(f"**Output:**\n```\n{stdout_preview}\n```")
+            elif success and stdout:
+                # For successful commands, keep last 10 lines of output
+                lines = stdout.split('\n')
+                if len(lines) > 10:
+                    summary_lines.append(f"**Output (last 10 lines):**\n```\n" + '\n'.join(lines[-10:]) + "\n```")
+                else:
+                    stdout_preview = stdout[:500]
+                    if len(stdout) > 500:
+                        stdout_preview += "\n[... truncated ...]"
+                    summary_lines.append(f"**Output:**\n```\n{stdout_preview}\n```")
+            summary_lines.append("")
+        
+        return "\n".join(summary_lines)
+    
+    def get_conversation_context(self, max_tokens: Optional[int] = None, max_messages: Optional[int] = None) -> str:
+        """
+        Get conversation context with intelligent truncation.
+        
+        Args:
+            max_tokens: Maximum tokens for context (defaults to config value)
+            max_messages: Maximum messages to include (defaults to config value)
+        
+        Returns:
+            Formatted conversation context string
+        """
         if not self.messages:
             return ""
         
+        # Get limits from config if not provided
+        if max_tokens is None:
+            max_tokens = get_max_context_tokens()
+        if max_messages is None:
+            max_messages = get_max_context_messages()
+        
+        # Start with most recent messages
+        recent_messages = self.messages[-max_messages:] if len(self.messages) > max_messages else self.messages
+        
+        # Build context, tracking token count
         lines = ["## Previous Conversation"]
-        for msg in self.messages[-5:]:  # Last 5 messages for context
+        total_tokens = self._estimate_tokens(lines[0])
+        
+        # Process messages in reverse (newest first) to prioritize recent content
+        included_messages = []
+        for msg in reversed(recent_messages):
+            msg_type = msg.get("type", "message")  # "message" or "execution"
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
-            lines.append(f"**{role.title()}:** {content[:200]}...")
+            
+            # Estimate tokens for this message
+            msg_tokens = self._estimate_tokens(content)
+            
+            # If adding this message would exceed limit, try to summarize/truncate
+            if total_tokens + msg_tokens > max_tokens:
+                # For execution results, try to summarize
+                if msg_type == "execution":
+                    content = self._summarize_execution_result(msg)
+                    msg_tokens = self._estimate_tokens(content)
+                
+                # If still too large, truncate content
+                if total_tokens + msg_tokens > max_tokens:
+                    # Keep first part and indicate truncation
+                    remaining_tokens = max_tokens - total_tokens - 100  # Reserve 100 for truncation notice
+                    max_chars = remaining_tokens * 4
+                    if len(content) > max_chars:
+                        content = content[:max_chars] + "\n[... truncated ...]"
+                        msg_tokens = self._estimate_tokens(content)
+                
+                # If we've hit the limit, stop adding older messages
+                if total_tokens + msg_tokens > max_tokens:
+                    break
+            
+            included_messages.append((role, content, msg_type))
+            total_tokens += msg_tokens
+        
+        # Format messages (oldest to newest for readability)
+        for role, content, msg_type in reversed(included_messages):
+            if msg_type == "execution":
+                lines.append(content)  # Execution results already formatted
+            else:
+                lines.append(f"**{role.title()}:** {content}")
+        
         lines.append("")
         return "\n".join(lines)
 

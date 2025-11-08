@@ -27,6 +27,8 @@ DEFAULT_MODEL_OPENAI = "gpt-4-turbo-preview"
 DEFAULT_MODEL_ANTHROPIC = "claude-3-5-sonnet-20241022"
 DEFAULT_BACKEND = "openai"  # or "anthropic"
 DEFAULT_MAX_STDIN_CHARS = 32000
+DEFAULT_MAX_CONTEXT_TOKENS = 80000  # 80k tokens (generous but safe)
+DEFAULT_MAX_CONTEXT_MESSAGES = 100  # Allow many exchanges in a session
 
 # Configuration getters
 def get_api_key(backend: str) -> Optional[str]:
@@ -93,4 +95,36 @@ def get_max_stdin_chars() -> int:
         except ValueError:
             return DEFAULT_MAX_STDIN_CHARS
     return DEFAULT_MAX_STDIN_CHARS
+
+
+def get_max_context_tokens() -> int:
+    """Get maximum tokens for context window."""
+    value = os.getenv("DAV_MAX_CONTEXT_TOKENS")
+    if value:
+        try:
+            parsed = int(value)
+            # Ensure reasonable value (positive and within 200k for Claude)
+            if parsed <= 0:
+                return DEFAULT_MAX_CONTEXT_TOKENS
+            # Cap at 200k to prevent issues
+            return min(parsed, 200_000)
+        except ValueError:
+            return DEFAULT_MAX_CONTEXT_TOKENS
+    return DEFAULT_MAX_CONTEXT_TOKENS
+
+
+def get_max_context_messages() -> int:
+    """Get maximum messages to include in context."""
+    value = os.getenv("DAV_MAX_CONTEXT_MESSAGES")
+    if value:
+        try:
+            parsed = int(value)
+            # Ensure reasonable value
+            if parsed <= 0:
+                return DEFAULT_MAX_CONTEXT_MESSAGES
+            # Cap at 500 to prevent excessive memory usage
+            return min(parsed, 500)
+        except ValueError:
+            return DEFAULT_MAX_CONTEXT_MESSAGES
+    return DEFAULT_MAX_CONTEXT_MESSAGES
 
