@@ -56,19 +56,16 @@ def main(
 ):
     """Dav - An intelligent, context-aware AI assistant for the Linux terminal."""
     
-    # Handle setup command
     if setup:
         from dav.setup import run_setup
         run_setup()
         return
     
-    # Handle update command
     if update:
         from dav.update import run_update
         run_update(confirm=True)
         return
     
-    # Handle uninstall commands
     if uninstall_info:
         show_uninstall_info()
         return
@@ -81,7 +78,6 @@ def main(
         remove_dav_files(confirm=True)
         return
     
-    # Handle history commands
     if history:
         history_manager = HistoryManager()
         queries = history_manager.get_recent_queries(limit=20)
@@ -101,13 +97,11 @@ def main(
         console.print("History cleared.")
         return
     
-    # Initialize components
     try:
         ai_backend = AIBackend(backend=backend, model=model)
     except ValueError as e:
         error_msg = str(e)
         render_error(error_msg)
-        # Check if it's an API key error and suggest setup
         if "API key not found" in error_msg:
             console.print("\n[yellow]Tip:[/yellow] Run [cyan]dav --setup[/cyan] to configure your API keys.")
         sys.exit(1)
@@ -115,15 +109,12 @@ def main(
     history_manager = HistoryManager()
     session_manager = SessionManager(session_id=session)
     
-    # Interactive mode
     if interactive:
         run_interactive_mode(ai_backend, history_manager, session_manager, execute, auto_confirm)
         return
     
-    # Single query mode
     stdin_content = None
     if not query:
-        # Check for piped input
         try:
             if not sys.stdin.isatty():
                 stdin_content = sys.stdin.read()
@@ -136,7 +127,6 @@ def main(
             render_error("No query provided. Use 'dav \"your question\"' or 'dav -i' for interactive mode.")
             sys.exit(1)
     
-    # Build prompt with context (pass execute flag for system prompt)
     context_data, full_prompt, system_prompt = _build_prompt_with_context(
         query,
         session_manager,
@@ -145,15 +135,13 @@ def main(
         interactive_mode=False,
     )
     
-    # Stream response with loading indicator
     try:
         backend_name = ai_backend.backend.title()
         response = render_streaming_response_with_loading(
             ai_backend.stream_response(full_prompt, system_prompt=system_prompt),
-            loading_message=f"Generating response with {backend_name}...",
+                loading_message=f"Generating response with {backend_name}...",
         )
 
-        # Process response
         _process_response(
             response,
             query,
@@ -198,12 +186,10 @@ def _build_prompt_with_context(
         context = build_context(query=query, stdin_content=stdin_content)
         context_str = format_context_for_prompt(context)
         
-        # Add session context if available (uses config defaults for limits)
         session_context = session_manager.get_conversation_context()
         if session_context:
             context_str = session_context + "\n" + context_str
         
-        # Get system prompt (with execute mode and interactive mode flags)
         system_prompt = get_system_prompt(execute_mode=execute_mode, interactive_mode=interactive_mode)
     
     return context, context_str, system_prompt
@@ -234,7 +220,6 @@ def _process_response(
         context_data: Context data dictionary
         is_interactive: Whether in interactive mode (affects execution result storage)
     """
-    # Save to history
     history_manager.add_query(
         query=query,
         response=response,
@@ -242,11 +227,9 @@ def _process_response(
         executed=execute
     )
     
-    # Save to session
     session_manager.add_message("user", query)
     session_manager.add_message("assistant", response)
     
-    # Execute commands if requested
     should_execute = execute or get_execute_permission()
     if should_execute:
         plan = None
@@ -267,7 +250,6 @@ def _process_response(
         else:
             execution_results = execute_commands_from_response(response, confirm=confirm, context=context_data)
         
-        # In interactive mode, save execution results to session so AI can see them
         if is_interactive and execution_results:
             session_manager.add_execution_results(execution_results)
 
@@ -294,21 +276,18 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                 console.print("Session cleared.\n")
                 continue
             
-            # Build prompt with context (pass execute flag and interactive mode for system prompt)
             context_data, full_prompt, system_prompt = _build_prompt_with_context(
                 query, session_manager, execute_mode=execute, interactive_mode=True
             )
             
-            # Stream response with loading indicator
             backend_name = ai_backend.backend.title()
-            console.print()  # Empty line
+            console.print()
             response = render_streaming_response_with_loading(
                 ai_backend.stream_response(full_prompt, system_prompt=system_prompt),
                 loading_message=f"Generating response with {backend_name}...",
             )
-            console.print()  # Empty line
+            console.print()
             
-            # Process response
             _process_response(
                 response,
                 query,

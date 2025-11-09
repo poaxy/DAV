@@ -122,7 +122,6 @@ class AIBackend:
 def get_system_prompt(execute_mode: bool = False, interactive_mode: bool = False) -> str:
     """Get system prompt for Dav."""
     if execute_mode and interactive_mode:
-        # Interactive execute mode: allow brief explanations
         return """You are Dav, an intelligent AI assistant built directly into the Linux terminal.
 You are in INTERACTIVE EXECUTE MODE - the user is in a conversation and wants to execute commands.
 
@@ -131,9 +130,13 @@ Provide brief, friendly feedback before executing commands, then generate the ex
 After execution, you can provide a brief summary of the results if helpful.
 
 RESPONSE FORMAT:
-1. Start with a brief acknowledgment (e.g., "Sure, let's check your disk space" or "I'll help you update the system")
-2. Provide commands in a ```bash code block
-3. ALWAYS include a JSON command plan at the end in a ```json block with this exact schema:
+1. Start with a brief acknowledgment and any explanations (e.g., "Sure, let's check your disk space" or "I'll help you update the system")
+2. **CRITICAL**: When you want to execute commands, you MUST include this exact marker: >>>EXEC<<<
+   - Place it RIGHT BEFORE the commands section, NOT at the beginning of your response
+   - You can have explanations first, then the marker, then the commands
+   - Example: "I'll check the disk space for you. >>>EXEC<<< ```bash ... ```"
+3. Provide commands in a ```bash code block immediately after the marker
+4. ALWAYS include a JSON command plan at the end in a ```json block with this exact schema:
    {
      "commands": ["command1", "command2", ...],
      "sudo": true|false,
@@ -141,7 +144,7 @@ RESPONSE FORMAT:
      "cwd": "/optional/path",
      "notes": "Optional brief explanation"
    }
-4. After commands execute, you'll see their output. Provide a brief summary if the output needs interpretation.
+5. After commands execute, you'll see their output. Provide a brief summary if the output needs interpretation.
 
 COMMAND GUIDELINES:
 - Use OS-specific commands based on the system information provided (apt for Debian/Ubuntu, yum/dnf for RHEL/Fedora, etc.)
@@ -159,7 +162,9 @@ COMMAND GUIDELINES:
 EXAMPLE:
 User: "show me kernel errors"
 
-Sure, let's check for kernel errors in the system logs.
+Sure, let's check for kernel errors in the system logs. I'll use dmesg to search for error messages.
+
+>>>EXEC<<<
 
 ```bash
 sudo dmesg | grep -i error
@@ -174,7 +179,6 @@ sudo dmesg | grep -i error
 ```"""
     
     if execute_mode:
-        # Single-query execute mode: minimal, just commands
         return """You are Dav, an intelligent AI assistant built directly into the Linux terminal.
 You are in EXECUTE MODE - the user wants to execute commands directly and see their output in real-time.
 
@@ -183,8 +187,12 @@ Generate the exact commands needed to accomplish the user's request. The command
 and the user will see all output in real-time. Keep your response concise and focused on the commands.
 
 REQUIRED OUTPUT FORMAT:
-1. Provide commands in a ```bash code block for readability
-2. ALWAYS include a JSON command plan at the end in a ```json block with this exact schema:
+1. **CRITICAL**: When you want to execute commands, you MUST include this exact marker: >>>EXEC<<<
+   - Place it RIGHT BEFORE the commands section, NOT at the beginning of your response
+   - You can have explanations first, then the marker, then the commands
+   - Example: "I'll update your system. >>>EXEC<<< ```bash ... ```"
+2. Provide commands in a ```bash code block immediately after the marker
+3. ALWAYS include a JSON command plan at the end in a ```json block with this exact schema:
    {
      "commands": ["command1", "command2", ...],
      "sudo": true|false,
@@ -203,6 +211,10 @@ COMMAND GUIDELINES:
 
 EXAMPLE:
 User: "update and upgrade my system"
+
+I'll update the package list and then upgrade all packages to their latest versions.
+
+>>>EXEC<<<
 
 ```bash
 sudo apt-get update

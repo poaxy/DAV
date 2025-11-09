@@ -21,9 +21,8 @@ from dav.terminal import (
 )
 
 
-# Constants
-COMMAND_TIMEOUT_SECONDS = 300  # 5 minutes timeout for command execution
-THREAD_JOIN_TIMEOUT_SECONDS = 2  # Timeout for thread joining (increased for reliability)
+COMMAND_TIMEOUT_SECONDS = 300
+THREAD_JOIN_TIMEOUT_SECONDS = 2
 
 
 @dataclass
@@ -35,15 +34,14 @@ class ExecutionResult:
     stderr: str
     return_code: int
 
-# Dangerous command patterns that should be blocked
 DANGEROUS_PATTERNS = [
-    r'\brm\s+-rf\s+/',  # rm -rf on root
-    r'\bdd\s+if=',  # dd command
-    r'>\s*/dev/',  # Output redirection to devices
-    r':\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\};',  # Fork bomb
-    r'mkfs\.',  # Filesystem creation
-    r'fdisk\s+/dev/',  # Disk partitioning
-    r'format\s+/',  # Format command
+    r'\brm\s+-rf\s+/',
+    r'\bdd\s+if=',
+    r'>\s*/dev/',
+    r':\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\};',
+    r'mkfs\.',
+    r'fdisk\s+/dev/',
+    r'format\s+/',
 ]
 
 
@@ -56,49 +54,47 @@ def is_dangerous_command(command: str) -> bool:
     return False
 
 
+COMMAND_EXECUTION_MARKER = ">>>EXEC<<<"
+
 def extract_commands(text: str) -> List[str]:
-    """Extract shell commands from AI response text."""
+    """Extract shell commands from AI response text.
+    
+    Only extracts commands if the special marker COMMAND_EXECUTION_MARKER is present in the text.
+    Only extracts commands that appear AFTER the marker position.
+    This prevents false positives when the AI is just explaining things without wanting to execute commands.
+    """
+    marker_pos = text.find(COMMAND_EXECUTION_MARKER)
+    if marker_pos == -1:
+        return []
+    
+    text_after_marker = text[marker_pos + len(COMMAND_EXECUTION_MARKER):]
     commands = []
     
-    # Only look for code blocks with bash/shell (most reliable)
     code_block_pattern = r'```(?:bash|sh|shell|zsh)?\n(.*?)```'
-    matches = re.findall(code_block_pattern, text, re.DOTALL | re.IGNORECASE)
+    matches = re.findall(code_block_pattern, text_after_marker, re.DOTALL | re.IGNORECASE)
     for match in matches:
-        # Split by newlines and filter
         lines = match.split('\n')
         for line in lines:
             line = line.strip()
-            # Skip empty lines, comments, and lines that are just variable assignments
             if not line or line.startswith('#'):
                 continue
-            
-            # Skip lines that are just variable assignments (VAR=value)
             if re.match(r'^[A-Z_][A-Z0-9_]*=', line):
                 continue
-            
-            # Only include lines that look like actual commands:
-            # - Have a command name followed by space and arguments, OR
-            # - Are at least 3 characters (to filter out single letters), OR
-            # - Contain common command operators (|, &&, ||, ;, >, <)
             if (' ' in line or len(line) >= 3) and not re.match(r'^[a-z]+$', line):
                 commands.append(line)
     
-    # Also capture inline code (e.g. `command`) as a fallback
     inline_pattern = r'`([^`]+)`'
-    inline_matches = re.findall(inline_pattern, text)
+    inline_matches = re.findall(inline_pattern, text_after_marker)
     for match in inline_matches:
         candidate = match.strip()
         if not candidate or candidate.startswith('#'):
             continue
         commands.append(candidate)
 
-    # Filter out false positives
     filtered_commands = []
     common_command_names = {'bash', 'sh', 'zsh', 'apt', 'yum', 'dnf', 'pacman',
                             'pip', 'python', 'python3', 'git', 'curl', 'wget',
                             'sudo', 'ls', 'cd', 'pwd', 'cat', 'grep', 'find'}
-    
-    # Commands that require arguments (should be filtered if no args provided)
     commands_requiring_args = {'less', 'more', 'cat', 'head', 'tail', 'grep', 'find',
                                'sed', 'awk', 'cut', 'sort', 'uniq', 'wc',
                                'chmod', 'chown', 'mv', 'cp', 'rm', 'mkdir', 'rmdir'}
@@ -108,40 +104,30 @@ def extract_commands(text: str) -> List[str]:
         if not cmd:
             continue
 
-        # Skip if it's just a file path (starts with / or ~ and doesn't contain a command)
         if re.match(r'^[/~]', cmd) and not any(cmd.startswith(f'{c} ') for c in ['cat', 'less', 'more', 'head', 'tail', 'grep', 'find', 'ls', 'cd']):
-            # Check if it looks like a pure file path (no command before it)
             if not re.match(r'^(cat|less|more|head|tail|grep|find|ls|cd|sudo\s+(cat|less|more|head|tail|grep|find|ls|cd))\s+', cmd):
                 continue
 
-        # Skip if it's just a single word that's a common command name
         cmd_parts = cmd.split()
         if len(cmd_parts) == 1:
             if cmd_parts[0].lower() in common_command_names:
                 continue
-            # Skip single words that are commands requiring arguments
             if cmd_parts[0].lower() in commands_requiring_args:
                 continue
-            # Skip if it's just a single short word without any operators
             if not any(c in cmd for c in ['|', '&', ';', '>', '<', '(', ')', '[', ']']):
                 if len(cmd_parts[0]) < 3:
                     continue
 
-        # Skip partial commands (commands that require arguments but don't have them)
-        # e.g., "sudo less" without a filename
         if len(cmd_parts) >= 2:
-            # Check if it's "sudo <command>" where command requires args but none provided
             if cmd_parts[0].lower() == 'sudo' and len(cmd_parts) == 2:
                 if cmd_parts[1].lower() in commands_requiring_args:
                     continue
         elif len(cmd_parts) == 1:
-            # Single command that requires args
             if cmd_parts[0].lower() in commands_requiring_args:
                 continue
 
         filtered_commands.append(cmd)
 
-    # Remove duplicates while preserving order
     seen = set()
     unique_commands = []
     for cmd in filtered_commands:
@@ -165,32 +151,25 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
     Returns:
         (success, stdout, stderr, return_code)
     """
-    # Check for dangerous commands
     if is_dangerous_command(command):
         render_error(f"Command blocked: potentially dangerous operation detected")
         return False, "", "Command blocked for safety", 1
     
-    # Ask for confirmation
     if confirm:
         render_command(command)
         if not confirm_action("Execute this command?"):
             return False, "", "User cancelled", 1
     
     try:
-        # Expand environment variables and user (~) in the command string
         command = os.path.expandvars(os.path.expanduser(command))
-        
         if not command.strip():
             return False, "", "Empty command", 1
 
         if stream_output:
-            # Stream output in real-time using Popen with shell
-            # Force unbuffered output by setting environment variable
             env = os.environ.copy()
             env['PYTHONUNBUFFERED'] = '1'
             return _execute_command_streaming(command, cwd, env)
         else:
-            # Capture output (for backward compatibility)
             result = subprocess.run(
                 command,
                 shell=True,
@@ -203,7 +182,7 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
     
     except subprocess.TimeoutExpired:
         render_error("Command execution timed out")
-        return False, "", "Command timed out", 124  # Standard timeout exit code
+        return False, "", "Command timed out", 124
     except Exception as e:
         render_error(f"Error executing command: {str(e)}")
         return False, "", str(e), 1
@@ -225,62 +204,53 @@ def _execute_command_streaming(command: str, cwd: Optional[str] = None, env: Opt
     stderr_lines: List[str] = []
     
     try:
-        # Prepare environment with unbuffered settings
         process_env = os.environ.copy()
         if env:
             process_env.update(env)
         process_env['PYTHONUNBUFFERED'] = '1'
         
-        # Start process with unbuffered output using shell
         process = subprocess.Popen(
             command,
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            bufsize=0,  # Unbuffered for immediate output
+            bufsize=0,
             cwd=cwd,
             env=process_env,
         )
         
-        # Read stdout and stderr in real-time
         def read_stdout():
-            """Read stdout line by line and print immediately."""
             try:
                 for line in iter(process.stdout.readline, ''):
                     if not line:
                         break
                     line = line.rstrip('\n\r')
-                    if line:  # Only append non-empty lines
+                    if line:
                         stdout_lines.append(line)
-                        print(line)  # Print immediately
+                        print(line)
                         sys.stdout.flush()
             except Exception:
-                pass  # Process may have closed stdout
+                pass
         
         def read_stderr():
-            """Read stderr line by line and print immediately."""
             try:
                 for line in iter(process.stderr.readline, ''):
                     if not line:
                         break
                     line = line.rstrip('\n\r')
-                    if line:  # Only append non-empty lines
+                    if line:
                         stderr_lines.append(line)
-                        print(line, file=sys.stderr)  # Print immediately
+                        print(line, file=sys.stderr)
                         sys.stderr.flush()
             except Exception:
-                pass  # Process may have closed stderr
+                pass
         
-        # Start reader threads
         stdout_thread = threading.Thread(target=read_stdout, daemon=True)
         stderr_thread = threading.Thread(target=read_stderr, daemon=True)
-        
         stdout_thread.start()
         stderr_thread.start()
         
-        # Wait for process to complete (with timeout handling)
-        # Use threading to implement timeout since process.wait() doesn't support timeout
         process_finished = threading.Event()
         returncode_container = [None]
         
@@ -291,47 +261,32 @@ def _execute_command_streaming(command: str, cwd: Optional[str] = None, env: Opt
         wait_thread = threading.Thread(target=wait_for_process, daemon=True)
         wait_thread.start()
         
-        # Wait for process to complete (with timeout)
         if not process_finished.wait(timeout=COMMAND_TIMEOUT_SECONDS):
             process.kill()
             render_error("Command execution timed out")
-            # Give threads time to read remaining output
             stdout_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS)
             stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS)
-            return False, '\n'.join(stdout_lines), '\n'.join(stderr_lines), 124  # Timeout exit code
+            return False, '\n'.join(stdout_lines), '\n'.join(stderr_lines), 124
         
-        # Ensure wait thread has completed before reading return code
         wait_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS)
         
-        # Get return code (handle None case, but preserve 0 for success)
         returncode = returncode_container[0]
         if returncode is None:
-            # If return code is still None after waiting, the process may have failed
-            # Try to get it directly from the process
             try:
                 returncode = process.poll()
                 if returncode is None:
-                    # Process is still running or hasn't been polled yet
-                    # Wait a bit more and try again
                     time.sleep(0.1)
                     returncode = process.poll()
                     if returncode is None:
-                        returncode = 1  # Default to failure if still None
+                        returncode = 1
             except Exception:
-                returncode = 1  # Default to failure on exception
+                returncode = 1
         
-        # Close pipes to signal EOF to reader threads (do this AFTER getting return code)
-        # This allows reader threads to finish reading any remaining data
         process.stdout.close()
         process.stderr.close()
-        
-        # Wait for threads to finish reading all output
-        # Give them time to process the EOF signal and finish reading
-        stdout_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS * 5)  # Longer timeout for normal completion
+        stdout_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS * 5)
         stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS * 5)
         
-        # Now determine success based on return code
-        # For piped commands, the return code is from the last command in the pipe
         success = returncode == 0
         stdout = '\n'.join(stdout_lines)
         stderr = '\n'.join(stderr_lines)
@@ -439,7 +394,10 @@ def execute_commands_from_response(
     commands = extract_commands(response)
     
     if not commands:
-        render_warning("No executable commands found in response")
+        if COMMAND_EXECUTION_MARKER not in response:
+            pass
+        else:
+            render_warning("Command execution marker found but no valid commands could be extracted")
         return results
     
     render_info(f"Found {len(commands)} command(s) to execute")
