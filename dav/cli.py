@@ -10,7 +10,7 @@ from dav.ai_backend import AIBackend, get_system_prompt
 from dav.command_plan import CommandPlanError, extract_command_plan
 from dav.config import get_default_backend, get_execute_permission
 from dav.context import build_context, format_context_for_prompt
-from dav.executor import execute_commands_from_response
+from dav.executor import COMMAND_EXECUTION_MARKER, execute_commands_from_response
 from dav.history import HistoryManager
 from dav.session import SessionManager
 from dav.terminal import (
@@ -233,10 +233,13 @@ def _process_response(
     should_execute = execute or get_execute_permission()
     if should_execute:
         plan = None
-        try:
-            plan = extract_command_plan(response)
-        except CommandPlanError as err:
-            render_warning(f"Command plan missing or invalid: {err}. Falling back to heuristic parsing.")
+        has_marker = COMMAND_EXECUTION_MARKER in response
+        
+        if has_marker:
+            try:
+                plan = extract_command_plan(response)
+            except CommandPlanError as err:
+                render_warning(f"Command plan missing or invalid: {err}. Falling back to heuristic parsing.")
 
         confirm = not auto_confirm
         execution_results = None
