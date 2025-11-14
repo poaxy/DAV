@@ -22,6 +22,61 @@ app = typer.Typer(help="Dav - An intelligent, context-aware AI assistant for the
 console = Console()
 
 
+def _check_setup_needed() -> bool:
+    """Check if Dav setup is needed (no configuration file or missing API keys).
+    
+    Returns:
+        True if setup is needed, False otherwise
+    """
+    from pathlib import Path
+    from dav.config import get_api_key, get_default_backend
+    
+    env_file = Path.home() / ".dav" / ".env"
+    
+    # If .env file doesn't exist, setup is needed
+    if not env_file.exists():
+        return True
+    
+    # If .env file exists but is empty, setup is needed
+    try:
+        if env_file.stat().st_size == 0:
+            return True
+    except Exception:
+        # If we can't check size, assume setup might be needed
+        pass
+    
+    # Check if we have at least one API key configured
+    backend = get_default_backend()
+    api_key = get_api_key(backend)
+    
+    # If no API key for default backend, check the other backend
+    if not api_key:
+        other_backend = "anthropic" if backend == "openai" else "openai"
+        api_key = get_api_key(other_backend)
+    
+    # Setup needed if no API keys found
+    return not api_key
+
+
+def _auto_setup_if_needed() -> bool:
+    """Automatically run setup if configuration is missing.
+    
+    Returns:
+        True if setup was run, False if setup was not needed
+    """
+    if not _check_setup_needed():
+        return False
+    
+    # Setup is needed - run it automatically
+    console.print("\n[bold yellow]⚠ Dav is not configured yet.[/bold yellow]")
+    console.print("[yellow]Running initial setup...[/yellow]\n")
+    
+    from dav.setup import run_setup
+    run_setup()
+    
+    return True
+
+
 @app.command()
 def main(
     query: Optional[str] = typer.Argument(None, help="Natural language query"),
@@ -50,6 +105,7 @@ def main(
 ):
     """Dav - An intelligent, context-aware AI assistant for the Linux terminal."""
     
+    # Handle setup/update/uninstall commands first (these don't need configuration)
     if setup:
         from dav.setup import run_setup
         run_setup()
@@ -86,6 +142,28 @@ def main(
         console.print("History cleared.")
         return
     
+    # Check for stdin input (for piped commands like: echo "test" | dav)
+    stdin_content = None
+    if not query:
+        try:
+            if not sys.stdin.isatty():
+                stdin_content = sys.stdin.read()
+        except Exception:
+            pass
+        
+        if stdin_content:
+            query = "analyze this"
+    
+    # For actual usage (query, interactive mode, or stdin), check if setup is needed
+    # and automatically run it if configuration is missing
+    if query or interactive or stdin_content:
+        if _auto_setup_if_needed():
+            # Setup was just completed - reload config and continue
+            # Re-import config to reload environment variables
+            import importlib
+            from dav import config
+            importlib.reload(config)
+    
     # Only import heavy AI/execution modules when actually needed
     from dav.ai_backend import AIBackend, get_system_prompt
     from dav.command_plan import CommandPlanError, extract_command_plan
@@ -117,19 +195,9 @@ def main(
         run_interactive_mode(ai_backend, history_manager, session_manager, execute, auto_confirm)
         return
     
-    stdin_content = None
     if not query:
-        try:
-            if not sys.stdin.isatty():
-                stdin_content = sys.stdin.read()
-        except Exception:
-            pass
-        
-        if stdin_content:
-            query = "analyze this"
-        else:
-            render_error("No query provided. Use 'dav \"your question\"' or 'dav -i' for interactive mode.")
-            sys.exit(1)
+        render_error("No query provided. Use 'dav \"your question\"' or 'dav -i' for interactive mode.")
+        sys.exit(1)
     
     context_data, full_prompt, system_prompt = _build_prompt_with_context(
         query,
