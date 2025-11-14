@@ -6,21 +6,8 @@ from typing import Dict, Optional, Tuple
 import typer
 from rich.console import Console
 
-from dav.ai_backend import AIBackend, get_system_prompt
-from dav.command_plan import CommandPlanError, extract_command_plan
-from dav.config import get_default_backend, get_execute_permission
-from dav.context import build_context, format_context_for_prompt
-from dav.executor import COMMAND_EXECUTION_MARKER, execute_commands_from_response
-from dav.history import HistoryManager
-from dav.session import SessionManager
-from dav.terminal import (
-    render_error,
-    render_info,
-    render_streaming_response_with_loading,
-    render_warning,
-    show_loading_status,
-)
-from dav.uninstall import list_dav_files, remove_dav_files, show_uninstall_info
+# Lazy imports for heavy modules - only load when needed
+# Fast commands (setup, update, uninstall, etc.) don't need these
 
 app = typer.Typer(help="Dav - An intelligent, context-aware AI assistant for the Linux terminal")
 console = Console()
@@ -41,6 +28,7 @@ def main(
     backend: Optional[str] = typer.Option(None, "--backend", help="AI backend (openai or anthropic)"),
     model: Optional[str] = typer.Option(None, "--model", help="AI model to use"),
     clear_history: bool = typer.Option(False, "--clear-history", help="Clear query history"),
+    uninstall: bool = typer.Option(False, "--uninstall", help="Complete uninstall: remove all data files and uninstall the package"),
     uninstall_data: bool = typer.Option(False, "--uninstall-data", help="Remove all Dav data files and directories"),
     list_data: bool = typer.Option(False, "--list-data", help="List all Dav data files and directories"),
     uninstall_info: bool = typer.Option(False, "--uninstall-info", help="Show uninstall instructions"),
@@ -66,19 +54,28 @@ def main(
         run_update(confirm=True)
         return
     
+    if uninstall:
+        from dav.uninstall import run_uninstall
+        run_uninstall(confirm=True)
+        return
+    
     if uninstall_info:
+        from dav.uninstall import show_uninstall_info
         show_uninstall_info()
         return
     
     if list_data:
+        from dav.uninstall import list_dav_files
         list_dav_files()
         return
     
     if uninstall_data:
+        from dav.uninstall import remove_dav_files
         remove_dav_files(confirm=True)
         return
     
     if history:
+        from dav.history import HistoryManager
         history_manager = HistoryManager()
         queries = history_manager.get_recent_queries(limit=20)
         if queries:
@@ -92,10 +89,27 @@ def main(
         return
     
     if clear_history:
+        from dav.history import HistoryManager
         history_manager = HistoryManager()
         history_manager.clear_history()
         console.print("History cleared.")
         return
+    
+    # Only import heavy AI/execution modules when actually needed
+    from dav.ai_backend import AIBackend, get_system_prompt
+    from dav.command_plan import CommandPlanError, extract_command_plan
+    from dav.config import get_default_backend, get_execute_permission
+    from dav.context import build_context, format_context_for_prompt
+    from dav.executor import COMMAND_EXECUTION_MARKER, execute_commands_from_response
+    from dav.history import HistoryManager
+    from dav.session import SessionManager
+    from dav.terminal import (
+        render_error,
+        render_info,
+        render_streaming_response_with_loading,
+        render_warning,
+        show_loading_status,
+    )
     
     try:
         ai_backend = AIBackend(backend=backend, model=model)
