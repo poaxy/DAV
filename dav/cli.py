@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import typer
 from rich.console import Console
@@ -11,6 +11,7 @@ from rich.console import Console
 # Type hints only - not imported at runtime
 if TYPE_CHECKING:
     from dav.ai_backend import AIBackend
+    from dav.executor import ExecutionResult
     from dav.history import HistoryManager
     from dav.session import SessionManager
 
@@ -246,29 +247,266 @@ def _process_response(
     
     should_execute = execute or get_execute_permission()
     if should_execute:
-        plan = None
         has_marker = COMMAND_EXECUTION_MARKER in response
         
         if has_marker:
-            try:
-                plan = extract_command_plan(response)
-            except CommandPlanError as err:
-                render_warning(f"Command plan missing or invalid: {err}. Falling back to heuristic parsing.")
-
-        confirm = not auto_confirm
-        execution_results = None
-        if plan:
-            execution_results = execute_commands_from_response(
-                response,
+            # Use feedback loop for conditional execution
+            confirm = not auto_confirm
+            _execute_with_feedback_loop(
+                initial_response=response,
+                query=query,
+                ai_backend=ai_backend,
+                session_manager=session_manager,
+                context_data=context_data,
                 confirm=confirm,
-                context=context_data,
-                plan=plan,
+                auto_confirm=auto_confirm,
+                is_interactive=is_interactive,
             )
         else:
-            execution_results = execute_commands_from_response(response, confirm=confirm, context=context_data)
+            # No commands to execute, just save response
+            pass
+
+
+def _format_execution_feedback(execution_results: List, original_query: str) -> str:
+    """
+    Format execution results into a prompt for AI to analyze and provide next steps.
+    
+    Args:
+        execution_results: List of ExecutionResult objects
+        original_query: Original user query
+    
+    Returns:
+        Formatted prompt string for AI
+    """
+    lines = []
+    lines.append("## Command Execution Results")
+    lines.append("")
+    lines.append(f"**Original Task:** {original_query}")
+    lines.append("")
+    
+    for idx, result in enumerate(execution_results, 1):
+        status = "✓ Success" if result.success else "✗ Failed"
+        lines.append(f"### Command {idx}")
+        lines.append(f"**Command:** `{result.command}`")
+        lines.append(f"**Status:** {status} (exit code: {result.return_code})")
+        lines.append("")
         
-        if is_interactive and execution_results:
-            session_manager.add_execution_results(execution_results)
+        if result.stdout:
+            # Truncate very long output (keep first 2000 chars and last 500 chars)
+            stdout = result.stdout
+            if len(stdout) > 3000:
+                stdout = stdout[:2000] + "\n[... truncated ...]\n" + stdout[-500:]
+            lines.append("**Output:**")
+            lines.append("```")
+            lines.append(stdout)
+            lines.append("```")
+            lines.append("")
+        
+        if result.stderr:
+            # Truncate very long error output
+            stderr = result.stderr
+            if len(stderr) > 1000:
+                stderr = stderr[:800] + "\n[... truncated ...]\n" + stderr[-200:]
+            lines.append("**Error Output:**")
+            lines.append("```")
+            lines.append(stderr)
+            lines.append("```")
+            lines.append("")
+    
+    lines.append("---")
+    lines.append("")
+    lines.append("**Your Task:**")
+    lines.append("Based on the command execution results above, analyze the output and determine:")
+    lines.append("1. What does the output indicate?")
+    lines.append("2. Is the original task complete, or are additional commands needed?")
+    lines.append("3. If more commands are needed, provide them with the >>>EXEC<<< marker.")
+    lines.append("4. If the task is complete, explicitly state 'Task complete' or 'No further commands needed'.")
+    lines.append("5. Explain your reasoning at each step.")
+    lines.append("")
+    
+    return "\n".join(lines)
+
+
+def _is_task_complete(response: str) -> bool:
+    """
+    Check if AI response indicates task completion.
+    
+    Args:
+        response: AI response text
+    
+    Returns:
+        True if task is complete, False otherwise
+    """
+    from dav.executor import COMMAND_EXECUTION_MARKER
+    
+    # Check if execution marker is present (means more commands coming)
+    if COMMAND_EXECUTION_MARKER in response:
+        return False
+    
+    # Check for completion phrases (case insensitive)
+    completion_phrases = [
+        "task complete",
+        "task is complete",
+        "task completed",
+        "no further commands needed",
+        "no more commands needed",
+        "no additional commands",
+        "all done",
+        "finished",
+        "completed successfully",
+        "task finished",
+    ]
+    
+    response_lower = response.lower()
+    for phrase in completion_phrases:
+        if phrase in response_lower:
+            return True
+    
+    return False
+
+
+def _execute_with_feedback_loop(
+    initial_response: str,
+    query: str,
+    ai_backend: AIBackend,
+    session_manager: SessionManager,
+    context_data: Optional[Dict],
+    confirm: bool,
+    auto_confirm: bool,
+    is_interactive: bool,
+) -> None:
+    """
+    Execute commands with automatic feedback loop.
+    
+    After each command execution, feeds results back to AI for analysis
+    and continues until AI indicates task is complete.
+    
+    Args:
+        initial_response: AI's initial response with commands
+        query: Original user query
+        ai_backend: AI backend instance
+        session_manager: Session manager instance
+        context_data: System context data
+        confirm: Whether to ask for confirmation
+        auto_confirm: Whether to auto-confirm execution
+        is_interactive: Whether in interactive mode
+    """
+    # Import here to avoid loading heavy modules for fast commands
+    from dav.command_plan import CommandPlanError, extract_command_plan
+    from dav.executor import COMMAND_EXECUTION_MARKER, execute_commands_from_response
+    from dav.terminal import render_error, render_info, render_streaming_response_with_loading, render_warning
+    
+    # Execute initial commands
+    console.print()
+    render_info("[bold cyan]Step 1:[/bold cyan] Executing initial commands...")
+    console.print()
+    
+    execution_results = execute_commands_from_response(
+        initial_response,
+        confirm=confirm,
+        context=context_data,
+    )
+    
+    if not execution_results:
+        render_warning("No commands were executed. Task may already be complete.")
+        return
+    
+    # Store initial results in session
+    session_manager.add_execution_results(execution_results)
+    
+    # Feedback loop
+    max_iterations = 10  # Safety limit to prevent infinite loops
+    iteration = 1
+    
+    while iteration < max_iterations:
+        iteration += 1
+        
+        # Format execution results for AI
+        feedback_prompt = _format_execution_feedback(execution_results, query)
+        
+        # Get AI's analysis and next steps
+        console.print()
+        render_info(f"[bold cyan]Step {iteration}:[/bold cyan] Analyzing results and determining next steps...")
+        console.print()
+        
+        # Build prompt with session context
+        from dav.ai_backend import get_system_prompt
+        
+        # Get current session context (includes all previous messages and execution results)
+        session_context = session_manager.get_conversation_context()
+        
+        # Combine session context with feedback prompt
+        # The feedback prompt provides the most recent execution results in a clear format
+        full_feedback_prompt = ""
+        if session_context:
+            full_feedback_prompt = session_context + "\n\n" + feedback_prompt
+        else:
+            full_feedback_prompt = feedback_prompt
+        
+        # Get system prompt
+        system_prompt = get_system_prompt(execute_mode=True, interactive_mode=is_interactive)
+        
+        # Get AI's response
+        backend_name = ai_backend.backend.title()
+        followup_response = render_streaming_response_with_loading(
+            ai_backend.stream_response(full_feedback_prompt, system_prompt=system_prompt),
+            loading_message=f"Analyzing with {backend_name}...",
+        )
+        console.print()
+        
+        # Store AI's response in session
+        session_manager.add_message("assistant", followup_response)
+        
+        # Check if task is complete
+        if _is_task_complete(followup_response):
+            render_info("[bold green]✓ Task complete![/bold green]")
+            console.print()
+            break
+        
+        # Check if AI provided more commands
+        if COMMAND_EXECUTION_MARKER not in followup_response:
+            # AI didn't provide commands but also didn't say complete
+            # This might be an analysis-only response, check again
+            render_info("AI provided analysis but no commands. Checking if task is complete...")
+            # Re-check with a more lenient check
+            if "complete" in followup_response.lower() or "done" in followup_response.lower():
+                render_info("[bold green]✓ Task complete![/bold green]")
+                console.print()
+                break
+            else:
+                render_warning("AI response unclear. Assuming task needs more steps.")
+                # Continue loop to see if AI provides commands in next iteration
+                continue
+        
+        # Execute next commands
+        render_info(f"[bold cyan]Step {iteration} (continued):[/bold cyan] Executing follow-up commands...")
+        console.print()
+        
+        # Extract command plan if available
+        plan = None
+        try:
+            plan = extract_command_plan(followup_response)
+        except CommandPlanError:
+            pass  # Will fall back to heuristic parsing
+        
+        execution_results = execute_commands_from_response(
+            followup_response,
+            confirm=confirm,
+            context=context_data,
+            plan=plan,
+        )
+        
+        if not execution_results:
+            render_warning("No commands found in AI response. Task may be complete.")
+            break
+        
+        # Store results in session
+        session_manager.add_execution_results(execution_results)
+    
+    if iteration >= max_iterations:
+        render_error(f"Reached maximum iteration limit ({max_iterations}). Stopping feedback loop.")
+        console.print()
+        render_warning("If the task is not complete, you may need to continue manually.")
 
 
 def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
