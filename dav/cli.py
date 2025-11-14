@@ -154,15 +154,14 @@ def main(
         if stdin_content:
             query = "analyze this"
     
-    # For actual usage (query, interactive mode, or stdin), check if setup is needed
-    # and automatically run it if configuration is missing
-    if query or interactive or stdin_content:
-        if _auto_setup_if_needed():
-            # Setup was just completed - reload config and continue
-            # Re-import config to reload environment variables
-            import importlib
-            from dav import config
-            importlib.reload(config)
+    # Check if setup is needed BEFORE trying to use the AI backend
+    # This ensures setup runs automatically on first use, regardless of how the tool is invoked
+    if _auto_setup_if_needed():
+        # Setup was just completed - reload config and continue
+        # Re-import config to reload environment variables
+        import importlib
+        from dav import config
+        importlib.reload(config)
     
     # Only import heavy AI/execution modules when actually needed
     from dav.ai_backend import AIBackend, get_system_prompt
@@ -179,6 +178,8 @@ def main(
         show_loading_status,
     )
     
+    # Try to initialize AI backend - this will fail if no API keys are configured
+    # But we've already run setup above if needed, so this should work now
     try:
         ai_backend = AIBackend(backend=backend, model=model)
     except ValueError as e:

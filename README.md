@@ -45,20 +45,31 @@ pip install git+https://github.com/poaxy/DAV.git
 
 ## Quick Start
 
-1. **Configure API key:**
+1. **First-time setup (automatic):**
+   After installation, simply run `dav` with any command. Setup will run automatically on first use:
+   ```bash
+   dav "how do I find large files in /var/log?"
+   ```
+   Or run `dav` with no arguments - setup will trigger automatically:
+   ```bash
+   dav
+   ```
+   
+   The setup wizard will prompt you to:
+   - Choose your AI backend (OpenAI or Anthropic)
+   - Enter your API key
+   - Configure default settings
+
+2. **Manual setup (optional):**
+   If you prefer to configure manually, run:
    ```bash
    dav --setup
    ```
-   Or manually create `~/.dav/.env`:
+   Or create `~/.dav/.env` manually:
    ```bash
    OPENAI_API_KEY=your_key_here
    DAV_BACKEND=openai
    DAV_DEFAULT_MODEL=gpt-4-turbo-preview
-   ```
-
-2. **Start using:**
-   ```bash
-   dav "how do I find large files in /var/log?"
    ```
 
 ## Usage
