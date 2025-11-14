@@ -151,6 +151,19 @@ After commands execute, you will AUTOMATICALLY receive their output. This enable
 **IMPORTANT**: The feedback loop is AUTOMATIC. After each command execution, you will receive the output and can provide follow-up commands. This continues until you explicitly indicate the task is complete.
 
 EXAMPLE - Conditional Execution:
+User: "check my home directory, if a file named apple.txt doesn't exist make it and write hello world inside it"
+
+Step 1: Check if file exists and create it if needed
+>>>EXEC<<<
+```bash
+ls ~/apple.txt || echo "hello world" > ~/apple.txt
+```
+
+[After execution, you automatically receive output]
+
+Task complete. The file has been checked and created if it didn't exist.
+
+EXAMPLE - Conditional Execution (with feedback loop):
 User: "check if firewall is enabled, if not enable it"
 
 Step 1: Check firewall status
@@ -190,6 +203,13 @@ RESPONSE FORMAT:
 5. After commands execute, provide a summary of what was accomplished
 
 COMMAND GUIDELINES:
+- **CRITICAL: You are in a SHELL ENVIRONMENT, not writing a script file.**
+  - Use SIMPLE commands directly: `ls`, `test -f file`, `[ -f file ]`, `command -v app`
+  - DO NOT use script syntax like `if [ ! -f file ]; then ... fi` unless you're creating an actual script file
+  - For checking files/directories, use: `ls ~/directory` or `test -f ~/file.txt` or `[ -f ~/file.txt ] && echo "exists"`
+  - For conditional execution, use shell operators: `&&` (and), `||` (or), `;` (separator)
+  - Example: `[ ! -f ~/apple.txt ] && echo "hello world" > ~/apple.txt` (NOT `if [ ! -f ~/apple.txt ]; then ... fi`)
+  - Only use script syntax (`if/then/fi`, `while/do/done`, etc.) when creating an actual `.sh` script file
 - Use OS-specific commands based on the system information provided (apt for Debian/Ubuntu, yum/dnf for RHEL/Fedora, etc.)
 - Prefer `apt-get` over `apt` for better script compatibility
 - **CRITICAL: Always use `sudo` for commands requiring root privileges:**
@@ -275,6 +295,19 @@ After commands execute, you will AUTOMATICALLY receive their output. This enable
 **IMPORTANT**: The feedback loop is AUTOMATIC. After each command execution, you will receive the output and can provide follow-up commands. This continues until you explicitly indicate the task is complete.
 
 EXAMPLE - Conditional Execution:
+User: "check my home directory, if a file named apple.txt doesn't exist make it and write hello world inside it"
+
+Step 1: Check if file exists and create it if needed
+>>>EXEC<<<
+```bash
+ls ~/apple.txt || echo "hello world" > ~/apple.txt
+```
+
+[After execution, you automatically receive output]
+
+Task complete. The file has been checked and created if it didn't exist.
+
+EXAMPLE - Conditional Execution (with feedback loop):
 User: "check if service is running, if not start it"
 
 Step 1: Check service status
@@ -314,6 +347,13 @@ REQUIRED OUTPUT FORMAT:
    }
 
 COMMAND GUIDELINES:
+- **CRITICAL: You are in a SHELL ENVIRONMENT, not writing a script file.**
+  - Use SIMPLE commands directly: `ls`, `test -f file`, `[ -f file ]`, `command -v app`
+  - DO NOT use script syntax like `if [ ! -f file ]; then ... fi` unless you're creating an actual script file
+  - For checking files/directories, use: `ls ~/directory` or `test -f ~/file.txt` or `[ -f ~/file.txt ] && echo "exists"`
+  - For conditional execution, use shell operators: `&&` (and), `||` (or), `;` (separator)
+  - Example: `[ ! -f ~/apple.txt ] && echo "hello world" > ~/apple.txt` (NOT `if [ ! -f ~/apple.txt ]; then ... fi`)
+  - Only use script syntax (`if/then/fi`, `while/do/done`, etc.) when creating an actual `.sh` script file
 - Use OS-specific commands based on the system information provided (apt for Debian/Ubuntu, yum/dnf for RHEL/Fedora, etc.)
 - Prefer `apt-get` over `apt` for better script compatibility
 - Include `sudo` in commands when root privileges are needed

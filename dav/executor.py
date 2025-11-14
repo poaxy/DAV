@@ -35,19 +35,25 @@ class ExecutionResult:
     return_code: int
 
 DANGEROUS_PATTERNS = [
-    r'\brm\s+-rf\s+/',
-    r'\bdd\s+if=',
-    r'>\s*/dev/',
-    r':\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\};',
-    r'mkfs\.',
-    r'fdisk\s+/dev/',
-    r'format\s+/',
+    r'\brm\s+-rf\s+/',  # rm -rf / (dangerous)
+    r'\bdd\s+if=',  # dd if= (can overwrite disk)
+    r'(?<!&)>\s*/dev/(?!null|zero)',  # > /dev/ (but allow &> /dev/null and > /dev/null/zero)
+    r':\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\};',  # Fork bomb
+    r'\bmkfs\.',  # mkfs. (format filesystem)
+    r'\bfdisk\s+/dev/',  # fdisk /dev/ (partition manipulation)
+    r'\bformat\s+/',  # format / (format disk)
 ]
 
 
 def is_dangerous_command(command: str) -> bool:
     """Check if a command contains dangerous patterns."""
     command_lower = command.lower().strip()
+    
+    # Skip dangerous check for conditional statements (if, while, for, etc.)
+    # These are valid bash constructs, not dangerous operations
+    if re.match(r'^\s*(if|while|for|case|until)\s+', command_lower):
+        return False
+    
     for pattern in DANGEROUS_PATTERNS:
         if re.search(pattern, command_lower):
             return True
@@ -62,6 +68,8 @@ def extract_commands(text: str) -> List[str]:
     Only extracts commands if the special marker COMMAND_EXECUTION_MARKER is present in the text.
     Only extracts commands that appear AFTER the marker position.
     This prevents false positives when the AI is just explaining things without wanting to execute commands.
+    
+    Handles multi-line bash constructs (if/then/fi, while/do/done, etc.) as single commands.
     """
     marker_pos = text.find(COMMAND_EXECUTION_MARKER)
     if marker_pos == -1:
@@ -73,15 +81,46 @@ def extract_commands(text: str) -> List[str]:
     code_block_pattern = r'```(?:bash|sh|shell|zsh)?\n(.*?)```'
     matches = re.findall(code_block_pattern, text_after_marker, re.DOTALL | re.IGNORECASE)
     for match in matches:
-        lines = match.split('\n')
-        for line in lines:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            if re.match(r'^[A-Z_][A-Z0-9_]*=', line):
-                continue
-            if (' ' in line or len(line) >= 3) and not re.match(r'^[a-z]+$', line):
-                commands.append(line)
+        code_block = match.strip()
+        if not code_block:
+            continue
+        
+        # Check if this is a multi-line bash construct (if/then/fi, while/do/done, etc.)
+        # These should be kept as a single command
+        bash_constructs = [
+            (r'\bif\s+.*\bthen\b', r'\bfi\b'),  # if...then...fi
+            (r'\bwhile\s+.*\bdo\b', r'\bdone\b'),  # while...do...done
+            (r'\bfor\s+.*\bdo\b', r'\bdone\b'),  # for...do...done
+            (r'\bcase\s+.*\bin\b', r'\besac\b'),  # case...in...esac
+            (r'\buntil\s+.*\bdo\b', r'\bdone\b'),  # until...do...done
+            (r'\bfunction\s+', r'\b}\s*$'),  # function...{...}
+        ]
+        
+        is_multiline_construct = False
+        for start_pattern, end_pattern in bash_constructs:
+            if re.search(start_pattern, code_block, re.IGNORECASE):
+                # Found start of construct, check if it has matching end
+                if re.search(end_pattern, code_block, re.IGNORECASE):
+                    is_multiline_construct = True
+                    break
+        
+        if is_multiline_construct:
+            # Keep the entire code block as a single command
+            # Remove leading/trailing whitespace but preserve structure
+            command = code_block.strip()
+            if command:
+                commands.append(command)
+        else:
+            # Split by lines for simple commands
+            lines = code_block.split('\n')
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                if re.match(r'^[A-Z_][A-Z0-9_]*=', line):
+                    continue
+                if (' ' in line or len(line) >= 3) and not re.match(r'^[a-z]+$', line):
+                    commands.append(line)
     
     inline_pattern = r'`([^`]+)`'
     inline_matches = re.findall(inline_pattern, text_after_marker)

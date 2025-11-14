@@ -396,6 +396,13 @@ def _execute_with_feedback_loop(
     from dav.executor import COMMAND_EXECUTION_MARKER, execute_commands_from_response
     from dav.terminal import render_error, render_info, render_streaming_response_with_loading, render_warning
     
+    # Extract command plan if available (preferred over heuristic extraction)
+    plan = None
+    try:
+        plan = extract_command_plan(initial_response)
+    except CommandPlanError:
+        pass  # Will fall back to heuristic parsing
+    
     # Execute initial commands
     console.print()
     render_info("[bold cyan]Step 1:[/bold cyan] Executing initial commands...")
@@ -405,6 +412,7 @@ def _execute_with_feedback_loop(
         initial_response,
         confirm=confirm,
         context=context_data,
+        plan=plan,
     )
     
     if not execution_results:

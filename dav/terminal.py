@@ -1,5 +1,6 @@
 """Terminal formatting and rendering for Dav."""
 
+import re
 import sys
 import threading
 import time
@@ -19,6 +20,38 @@ console = Console()
 RAINBOW_COLORS = ["red", "yellow", "green", "cyan", "blue", "magenta"]
 STREAM_UPDATE_THRESHOLD = 20  # Only update every N characters to reduce flashing
 SPINNER_UPDATE_INTERVAL = 0.1  # Seconds between spinner frame updates
+
+# Pattern to match JSON command plan blocks (for filtering from display)
+# Matches ```json ... ``` blocks that contain JSON objects
+JSON_COMMAND_PLAN_PATTERN = re.compile(
+    r"```json\s*\{.*?\}\s*```",  # Match ```json { ... } ``` blocks
+    re.DOTALL | re.IGNORECASE
+)
+
+
+def strip_json_command_plan(text: str) -> str:
+    """Remove JSON command plan blocks from response text for display purposes.
+    
+    The JSON command plan is used internally for command extraction but should
+    not be shown to users as it's not helpful.
+    
+    Args:
+        text: Response text that may contain JSON command plan blocks
+        
+    Returns:
+        Text with JSON command plan blocks removed
+    """
+    # Remove JSON command plan blocks
+    cleaned = JSON_COMMAND_PLAN_PATTERN.sub("", text)
+    
+    # Clean up any extra whitespace/newlines left behind
+    # Remove 3+ consecutive newlines (likely from removed JSON blocks)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    
+    # Remove trailing whitespace
+    cleaned = cleaned.rstrip()
+    
+    return cleaned
 
 
 def render_streaming_response(stream: Iterator[str], show_markdown: bool = True) -> str:
@@ -47,27 +80,34 @@ def render_streaming_response(stream: Iterator[str], show_markdown: bool = True)
             else:
                 live.update(Text(accumulated))
     
+    # Filter out JSON command plan before final render
+    display_text = strip_json_command_plan(accumulated)
+    
     # Final render
     if show_markdown:
         try:
-            console.print(Markdown(accumulated))
+            console.print(Markdown(display_text))
         except Exception:
-            console.print(accumulated)
+            console.print(display_text)
     else:
-        console.print(accumulated)
+        console.print(display_text)
     
+    # Return original (unfiltered) for command extraction
     return accumulated
 
 
 def render_response(response: str, show_markdown: bool = True) -> None:
     """Render complete AI response with markdown formatting."""
+    # Filter out JSON command plan before display
+    display_text = strip_json_command_plan(response)
+    
     if show_markdown:
         try:
-            console.print(Markdown(response))
+            console.print(Markdown(display_text))
         except Exception:
-            console.print(response)
+            console.print(display_text)
     else:
-        console.print(response)
+        console.print(display_text)
 
 
 def render_error(message: str) -> None:
@@ -246,15 +286,16 @@ def render_streaming_response_with_loading(
     
     # Now render the rest with Live
     with Live(console=console, refresh_per_second=15, transient=False) as live:
-        # Render first chunk immediately
+        # Render first chunk immediately (filter JSON for display)
+        display_text = strip_json_command_plan(accumulated)
         if show_markdown:
             try:
-                markdown = Markdown(accumulated)
+                markdown = Markdown(display_text)
                 live.update(markdown)
             except Exception:
-                live.update(Text(accumulated))
+                live.update(Text(display_text))
         else:
-            live.update(Text(accumulated))
+            live.update(Text(display_text))
         
         last_update_length = len(accumulated)
         
@@ -290,20 +331,23 @@ def render_streaming_response_with_loading(
                 
                 if should_update:
                     try:
+                        # Filter JSON for display but keep original for return
+                        display_text = strip_json_command_plan(accumulated)
                         if show_markdown:
-                            markdown = Markdown(accumulated)
+                            markdown = Markdown(display_text)
                             live.update(markdown)
                         else:
-                            live.update(Text(accumulated))
+                            live.update(Text(display_text))
                         last_update_length = len(accumulated)
                     except Exception:
                         # If markdown parsing fails, just show text
-                        live.update(Text(accumulated))
+                        display_text = strip_json_command_plan(accumulated)
+                        live.update(Text(display_text))
                         last_update_length = len(accumulated)
         except Exception as e:
             live.update(Text(f"[bold red]Error: {str(e)}[/bold red]"))
             return ""
     
-    # Final render (no need to re-render, Live already showed it)
+    # Return original (unfiltered) for command extraction, but display was filtered
     return accumulated
 
