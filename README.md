@@ -143,8 +143,6 @@ DAV_MAX_STDIN_CHARS=32000
 
 ## Uninstallation
 
-### Complete Uninstall (Recommended)
-
 Remove all data files and uninstall the package in one command:
 
 ```bash
@@ -156,26 +154,7 @@ This will:
 - Uninstall the dav-ai package automatically
 - Detect your installation method (pipx, pip, or venv) and use the appropriate uninstall command
 
-### Partial Uninstall
-
-If you only want to remove data files (keeping the package installed):
-
-```bash
-dav --uninstall-data
-```
-
-### Manual Uninstall
-
-If you prefer to uninstall manually:
-
-```bash
-# Remove data files
-dav --uninstall-data
-
-# Uninstall package (choose based on your installation method)
-pipx uninstall dav-ai  # if installed with pipx
-pip uninstall dav-ai    # if installed with pip
-```
+**Note**: This is a complete uninstall. If you only want to remove data files while keeping the package installed, you'll need to manually delete the `~/.dav` directory.
 
 ## Troubleshooting
 

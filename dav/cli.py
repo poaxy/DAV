@@ -37,9 +37,6 @@ def main(
     model: Optional[str] = typer.Option(None, "--model", help="AI model to use"),
     clear_history: bool = typer.Option(False, "--clear-history", help="Clear query history"),
     uninstall: bool = typer.Option(False, "--uninstall", help="Complete uninstall: remove all data files and uninstall the package"),
-    uninstall_data: bool = typer.Option(False, "--uninstall-data", help="Remove all Dav data files and directories"),
-    list_data: bool = typer.Option(False, "--list-data", help="List all Dav data files and directories"),
-    uninstall_info: bool = typer.Option(False, "--uninstall-info", help="Show uninstall instructions"),
     setup: bool = typer.Option(False, "--setup", help="Set up Dav: create .dav directory and template .env file"),
     update: bool = typer.Option(False, "--update", help="Update Dav to the latest version (preserves configuration)"),
     auto_confirm: bool = typer.Option(
@@ -67,21 +64,6 @@ def main(
         run_uninstall(confirm=True)
         return
     
-    if uninstall_info:
-        from dav.uninstall import show_uninstall_info
-        show_uninstall_info()
-        return
-    
-    if list_data:
-        from dav.uninstall import list_dav_files
-        list_dav_files()
-        return
-    
-    if uninstall_data:
-        from dav.uninstall import remove_dav_files
-        remove_dav_files(confirm=True)
-        return
-    
     if history:
         from dav.history import HistoryManager
         history_manager = HistoryManager()
@@ -106,7 +88,6 @@ def main(
     # Only import heavy AI/execution modules when actually needed
     from dav.ai_backend import AIBackend, get_system_prompt
     from dav.command_plan import CommandPlanError, extract_command_plan
-    from dav.config import get_default_backend, get_execute_permission
     from dav.context import build_context, format_context_for_prompt
     from dav.executor import COMMAND_EXECUTION_MARKER, execute_commands_from_response
     from dav.history import HistoryManager
@@ -204,6 +185,11 @@ def _build_prompt_with_context(
     Returns:
         Tuple of (context_dict, context_string, system_prompt)
     """
+    # Import here to avoid loading heavy modules for fast commands
+    from dav.context import build_context, format_context_for_prompt
+    from dav.ai_backend import get_system_prompt
+    from dav.terminal import show_loading_status
+    
     with show_loading_status("Building context..."):
         context = build_context(query=query, stdin_content=stdin_content)
         context_str = format_context_for_prompt(context)
@@ -242,6 +228,12 @@ def _process_response(
         context_data: Context data dictionary
         is_interactive: Whether in interactive mode (affects execution result storage)
     """
+    # Import here to avoid loading heavy modules for fast commands
+    from dav.config import get_execute_permission
+    from dav.command_plan import CommandPlanError, extract_command_plan
+    from dav.executor import COMMAND_EXECUTION_MARKER, execute_commands_from_response
+    from dav.terminal import render_warning
+    
     history_manager.add_query(
         query=query,
         response=response,
@@ -282,6 +274,9 @@ def _process_response(
 def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                         session_manager: SessionManager, execute: bool, auto_confirm: bool):
     """Run interactive mode for multi-turn conversations."""
+    # Import here to avoid loading heavy modules for fast commands
+    from dav.terminal import render_error, render_streaming_response_with_loading
+    
     console.print("[bold green]Dav Interactive Mode[/bold green]")
     console.print("Type 'exit' or 'quit' to exit, 'clear' to clear session\n")
     
