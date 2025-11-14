@@ -1,10 +1,18 @@
 """Main CLI interface for Dav."""
 
+from __future__ import annotations
+
 import sys
-from typing import Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 import typer
 from rich.console import Console
+
+# Type hints only - not imported at runtime
+if TYPE_CHECKING:
+    from dav.ai_backend import AIBackend
+    from dav.history import HistoryManager
+    from dav.session import SessionManager
 
 # Lazy imports for heavy modules - only load when needed
 # Fast commands (setup, update, uninstall, etc.) don't need these
