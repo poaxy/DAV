@@ -192,6 +192,11 @@ def main(
     history_manager = HistoryManager()
     session_manager = SessionManager(session_id=session)
     
+    # If no query provided and not in interactive mode, default to interactive execute mode
+    if not query and not interactive:
+        interactive = True
+        execute = True  # Default to execute mode for easier access to main functionality
+    
     if interactive:
         run_interactive_mode(ai_backend, history_manager, session_manager, execute, auto_confirm)
         return
