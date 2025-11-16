@@ -199,28 +199,133 @@ class AutomationLogger:
         
         return "\n".join(report_lines)
     
+    def generate_ai_summary(self, task_query: str, execution_results: Optional[List] = None) -> str:
+        """Generate AI-powered summary of the automation task."""
+        try:
+            from dav.ai_backend import AIBackend
+            
+            # Build summary of what happened
+            summary_data = []
+            summary_data.append(f"Task: {task_query}")
+            summary_data.append(f"Started: {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            summary_data.append("")
+            
+            if execution_results:
+                successful = sum(1 for r in execution_results if getattr(r, "success", False))
+                failed = len(execution_results) - successful
+                summary_data.append(f"Total commands executed: {len(execution_results)}")
+                summary_data.append(f"Successful: {successful}, Failed: {failed}")
+                summary_data.append("")
+                summary_data.append("Command Execution Details:")
+                for i, result in enumerate(execution_results, 1):
+                    status = "SUCCESS" if result.success else "FAILED"
+                    summary_data.append(f"\n[{i}] {status} (exit code: {result.return_code})")
+                    summary_data.append(f"    Command: {result.command}")
+                    if result.stdout:
+                        # Show first few lines of output
+                        output_lines = result.stdout.strip().split("\n")
+                        preview = "\n".join(output_lines[:5])
+                        if len(output_lines) > 5:
+                            preview += f"\n    ... ({len(output_lines) - 5} more lines)"
+                        summary_data.append(f"    Output: {preview}")
+                    if result.stderr:
+                        error_lines = result.stderr.strip().split("\n")
+                        preview = "\n".join(error_lines[:3])
+                        if len(error_lines) > 3:
+                            preview += f"\n    ... ({len(error_lines) - 3} more lines)"
+                        summary_data.append(f"    Error: {preview}")
+            elif self.commands:
+                successful = sum(1 for cmd in self.commands if cmd.success)
+                failed = len(self.commands) - successful
+                summary_data.append(f"Total commands executed: {len(self.commands)}")
+                summary_data.append(f"Successful: {successful}, Failed: {failed}")
+                summary_data.append("")
+                summary_data.append("Command Execution Details:")
+                for i, cmd in enumerate(self.commands, 1):
+                    status = "SUCCESS" if cmd.success else "FAILED"
+                    summary_data.append(f"\n[{i}] {status} (exit code: {cmd.return_code})")
+                    summary_data.append(f"    Command: {cmd.command}")
+                    if cmd.stdout_preview:
+                        summary_data.append(f"    Output: {cmd.stdout_preview}")
+                    if cmd.stderr_preview:
+                        summary_data.append(f"    Error: {cmd.stderr_preview}")
+            
+            if self.errors:
+                summary_data.append("")
+                summary_data.append("Errors encountered:")
+                for error in self.errors:
+                    summary_data.append(f"  - {error}")
+            
+            if self.warnings:
+                summary_data.append("")
+                summary_data.append("Warnings:")
+                for warning in self.warnings:
+                    summary_data.append(f"  - {warning}")
+            
+            # Create prompt for AI to generate summary
+            execution_summary = "\n".join(summary_data)
+            prompt = f"""Based on the following automation task execution, provide a clear, concise summary in plain English.
+
+{execution_summary}
+
+Please provide a summary that:
+1. Explains what the task was trying to accomplish
+2. Lists what commands were executed and their outcomes
+3. Explains what the results mean (success, failure, what was accomplished)
+4. Notes any errors or issues encountered
+5. Concludes with the overall status of the task
+
+Keep it concise but informative. Write it as a natural summary report, not a technical log."""
+            
+            try:
+                ai_backend = AIBackend()
+                ai_summary = ai_backend.get_response(prompt, system_prompt="You are a technical writer. Generate clear, concise summaries of automation task executions.")
+                return ai_summary
+            except Exception as e:
+                # Fallback to structured report if AI fails
+                return self.generate_summary_report(execution_results)
+        except Exception as e:
+            # Fallback to structured report if AI backend unavailable
+            return self.generate_summary_report(execution_results)
+    
     def log_summary(self, task_query: str, execution_results: Optional[List] = None) -> None:
-        """Generate and write summary report."""
+        """Generate and write AI-powered summary report."""
         if not self.task_query:
             self.task_query = task_query
         
-        report = self.generate_summary_report(execution_results)
+        # Generate AI summary
+        report = self.generate_ai_summary(task_query, execution_results)
+        
+        # Add header and metadata
+        end_time = datetime.now()
+        duration = end_time - self.start_time
+        
+        full_report = f"""DAV AUTOMATION TASK REPORT
+{'=' * 80}
+Task: {self.task_query or task_query}
+Started: {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}
+Finished: {end_time.strftime('%Y-%m-%d %H:%M:%S')}
+Duration: {duration}
+{'=' * 80}
+
+{report}
+
+{'=' * 80}
+Report saved: {self.report_file}
+{'=' * 80}
+"""
         
         # Write report to file
         with open(self.report_file, "w", encoding="utf-8") as f:
-            f.write(report)
+            f.write(full_report)
         
         # Also print summary to console
         print("\n" + "=" * 80)
         print("AUTOMATION TASK SUMMARY")
         print("=" * 80)
-        if execution_results:
-            successful = sum(1 for r in execution_results if getattr(r, "success", False))
-            failed = len(execution_results) - successful
-            print(f"Commands executed: {len(execution_results)}")
-            print(f"Successful: {successful}, Failed: {failed}")
-        print(f"Report saved to: {self.report_file}")
-        print("=" * 80 + "\n")
+        print(report)
+        print("=" * 80)
+        print(f"Full report saved to: {self.report_file}\n")
     
     def cleanup_old_logs(self, retention_days: Optional[int] = None) -> None:
         """Remove logs older than retention period."""
