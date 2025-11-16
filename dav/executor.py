@@ -38,18 +38,47 @@ class ExecutionResult:
     return_code: int
 
 DANGEROUS_PATTERNS = [
-    r'\brm\s+-rf\s+/',  # rm -rf / (dangerous)
-    r'\bdd\s+if=',  # dd if= (can overwrite disk)
+    r'\brm\s+-rf\s+/',  # rm -rf / (dangerous - always block)
+    r'\brm\s+-rf\s+/etc',  # rm -rf /etc (always block)
+    r'\brm\s+-rf\s+/usr',  # rm -rf /usr (always block)
+    r'\brm\s+-rf\s+/var',  # rm -rf /var (always block)
+    r'\brm\s+-rf\s+/boot',  # rm -rf /boot (always block)
+    r'\brm\s+-rf\s+/sys',  # rm -rf /sys (always block)
+    r'\brm\s+-rf\s+/proc',  # rm -rf /proc (always block)
+    r'\bdd\s+if=/dev/zero',  # dd if=/dev/zero (disk wipe - always block)
+    r'\bmkfs\s+.*\s+/dev/',  # mkfs on device (format disk - always block)
+    r'\bwipefs\s+.*\s+/dev/',  # wipefs on device (always block)
+    r'\bpasswd\s+root',  # Change root password (always block)
+    r'\bdd\s+if=',  # dd if= (can overwrite disk - always block)
     r'(?<!&)>\s*/dev/(?!null|zero)',  # > /dev/ (but allow &> /dev/null and > /dev/null/zero)
     r':\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\};',  # Fork bomb
-    r'\bmkfs\.',  # mkfs. (format filesystem)
-    r'\bfdisk\s+/dev/',  # fdisk /dev/ (partition manipulation)
-    r'\bformat\s+/',  # format / (format disk)
+    r'\bmkfs\.',  # mkfs. (format filesystem - always block)
+    r'\bfdisk\s+/dev/',  # fdisk /dev/ (partition manipulation - always block)
+    r'\bformat\s+/',  # format / (format disk - always block)
+]
+
+# Patterns that are dangerous in automation mode but may be acceptable if explicitly requested
+AUTOMATION_DANGEROUS_PATTERNS = [
+    r'\breboot\b',  # reboot (dangerous in automation unless explicitly requested)
+    r'\bshutdown\b',  # shutdown (dangerous in automation unless explicitly requested)
+    r'\bpoweroff\b',  # poweroff (dangerous in automation unless explicitly requested)
+    r'\bhalt\b',  # halt (dangerous in automation unless explicitly requested)
+    r'\binit\s+[06]',  # init 0 or init 6 (shutdown/reboot)
+    r'\bsystemctl\s+(reboot|poweroff|halt)',  # systemctl reboot/poweroff/halt
 ]
 
 
-def is_dangerous_command(command: str) -> bool:
-    """Check if a command contains dangerous patterns."""
+def is_dangerous_command(command: str, automation_mode: bool = False) -> bool:
+    """
+    Check if a command contains dangerous patterns.
+    
+    Args:
+        command: Command to check
+        automation_mode: If True, also check automation-specific dangerous patterns
+    
+    Returns:
+        True if command is dangerous, False otherwise
+    """
     command_lower = command.lower().strip()
     
     # Skip dangerous check for conditional statements (if, while, for, etc.)
@@ -57,9 +86,17 @@ def is_dangerous_command(command: str) -> bool:
     if re.match(r'^\s*(if|while|for|case|until)\s+', command_lower):
         return False
     
+    # Always check standard dangerous patterns
     for pattern in DANGEROUS_PATTERNS:
         if re.search(pattern, command_lower):
             return True
+    
+    # In automation mode, also check automation-specific dangerous patterns
+    if automation_mode:
+        for pattern in AUTOMATION_DANGEROUS_PATTERNS:
+            if re.search(pattern, command_lower):
+                return True
+    
     return False
 
 
@@ -193,8 +230,10 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
     Returns:
         (success, stdout, stderr, return_code)
     """
-    if is_dangerous_command(command):
+    if is_dangerous_command(command, automation_mode=automation_mode):
         error_msg = "Command blocked: potentially dangerous operation detected"
+        if automation_mode:
+            error_msg += " (reboot/shutdown commands require explicit user request in automation mode)"
         render_error(error_msg)
         if automation_logger:
             automation_logger.log_error(error_msg)
@@ -225,7 +264,6 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
                     render_error(error_msg)
                     if automation_logger:
                         automation_logger.log_error(error_msg)
-                        automation_logger.log_info(sudo_handler.get_sudoers_instructions())
                     return False, "", error_msg, 1
                 # Command already has sudo prefix, so we execute it as-is
                 # The sudo check above ensures password-less sudo is available
@@ -235,10 +273,6 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
         if not confirm_action("Execute this command?"):
             return False, "", "User cancelled", 1
     
-    # Log command if in automation mode
-    if automation_logger:
-        automation_logger.log_command(command)
-    
     try:
         command = os.path.expandvars(os.path.expanduser(command))
         if not command.strip():
@@ -247,7 +281,17 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
         if stream_output:
             env = os.environ.copy()
             env['PYTHONUNBUFFERED'] = '1'
-            return _execute_command_streaming(command, cwd, env)
+            success, stdout, stderr, return_code = _execute_command_streaming(command, cwd, env)
+            # Record streaming command execution for summary
+            if automation_logger:
+                automation_logger.record_command_execution(
+                    command=command,
+                    success=success,
+                    return_code=return_code,
+                    stdout=stdout,
+                    stderr=stderr
+                )
+            return success, stdout, stderr, return_code
         else:
             result = subprocess.run(
                 command,
@@ -258,9 +302,15 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
                 cwd=cwd,
             )
             
-            # Log output if in automation mode
+            # Record command execution for summary report
             if automation_logger:
-                automation_logger.log_output(result.stdout, result.stderr, result.returncode)
+                automation_logger.record_command_execution(
+                    command=command,
+                    success=result.returncode == 0,
+                    return_code=result.returncode,
+                    stdout=result.stdout,
+                    stderr=result.stderr
+                )
             
             return result.returncode == 0, result.stdout, result.stderr, result.returncode
     

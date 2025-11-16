@@ -264,8 +264,8 @@ def main(
     if is_automation_mode:
         from dav.automation import AutomationLogger
         automation_logger = AutomationLogger()
-        automation_logger.log_info("Automation mode enabled")
-        automation_logger.log_info(f"Task: {query or 'interactive mode'}")
+        if query:
+            automation_logger.set_task(query)
         # Auto-enable execute mode in automation
         execute = True
         auto_confirm = True
@@ -311,10 +311,9 @@ def main(
                 loading_message=f"Generating response with {backend_name}...",
         )
         
-        # Log AI response if in automation mode
+        # Record AI response for summary
         if automation_logger:
-            automation_logger.log_info("AI Response received")
-            automation_logger.log_info(f"Response: {response[:500]}...")  # Log first 500 chars
+            automation_logger.record_ai_response(response)
 
         _process_response(
             response,
@@ -605,8 +604,7 @@ def _execute_with_feedback_loop(
     render_info("[bold cyan]Step 1:[/bold cyan] Executing initial commands...")
     console.print()
     
-    if automation_logger:
-        automation_logger.log_info("Step 1: Executing initial commands")
+    # Step 1 is tracked in the summary report
     
     execution_results = execute_commands_from_response(
         initial_response,
@@ -619,8 +617,6 @@ def _execute_with_feedback_loop(
     
     if not execution_results:
         render_warning("No commands were executed. Task may already be complete.")
-        if automation_logger:
-            automation_logger.log_info("No commands were executed")
         return []
     
     # Store initial results in session
@@ -694,8 +690,7 @@ def _execute_with_feedback_loop(
         render_info(f"[bold cyan]Step {iteration} (continued):[/bold cyan] Executing follow-up commands...")
         console.print()
         
-        if automation_logger:
-            automation_logger.log_info(f"Step {iteration}: Executing follow-up commands")
+        # Step tracking is done in the summary report
         
         # Extract command plan if available
         plan = None
@@ -727,7 +722,7 @@ def _execute_with_feedback_loop(
         console.print()
         render_warning("If the task is not complete, you may need to continue manually.")
         if automation_logger:
-            automation_logger.log_error(f"Reached maximum iteration limit ({max_iterations})")
+            automation_logger.log_warning(f"Reached maximum iteration limit ({max_iterations})")
     
     # Log final summary if in automation mode (only once at the end)
     if automation_logger and execution_results:
