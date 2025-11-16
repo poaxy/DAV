@@ -202,6 +202,8 @@ def update_with_venv() -> bool:
 
 def run_update(confirm: bool = True) -> None:
     """Run update process for Dav."""
+    from pathlib import Path
+    
     console.print(Panel.fit(
         "[bold green]Dav Updater[/bold green]",
         border_style="green"
@@ -211,6 +213,14 @@ def run_update(confirm: bool = True) -> None:
     method = detect_installation_method()
     
     console.print(f"\n[bold]Detected installation method:[/bold] {method}\n")
+    
+    # Check for root installation
+    root_dav_dir = Path("/root/.dav")
+    has_root_installation = root_dav_dir.exists()
+    if has_root_installation:
+        console.print("[yellow]⚠ Note:[/yellow] Root installation detected at [cyan]/root/.dav[/cyan]")
+        console.print("  Root's installation will need to be updated separately if needed.")
+        console.print("  To update root's installation: [cyan]sudo dav --update[/cyan] (as root)\n")
     
     if method == 'unknown':
         console.print("[yellow]⚠ Could not detect installation method.[/yellow]")
@@ -235,7 +245,7 @@ def run_update(confirm: bool = True) -> None:
     
     if success:
         console.print("\n[bold green]✓ Update complete![/bold green]")
-        console.print("[green]Your configuration and data have been preserved.[/green]\n")
+        console.print("[green]Your configuration, data, and automation logs have been preserved.[/green]\n")
     else:
         console.print("\n[bold red]✗ Update failed[/bold red]")
         console.print("Please try updating manually or check the error messages above.\n")

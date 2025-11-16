@@ -9,9 +9,8 @@ from typing import List, Tuple
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm
-from rich.text import Text
 
-from dav.config import get_history_db_path, get_session_dir
+from dav.config import get_history_db_path, get_session_dir, get_automation_log_dir
 from dav.update import detect_installation_method
 
 console = Console()
@@ -33,6 +32,15 @@ def get_dav_data_paths() -> List[Tuple[Path, str]]:
     if session_dir.exists() and session_dir not in seen_paths:
         paths.append((session_dir, "Session directory"))
         seen_paths.add(session_dir)
+    
+    # Automation logs directory
+    log_dir = get_automation_log_dir()
+    if log_dir.exists() and log_dir not in seen_paths:
+        # Check if log directory has files
+        log_files = list(log_dir.glob("dav_*.log"))
+        if log_files:
+            paths.append((log_dir, f"Automation logs directory ({len(log_files)} log file(s))"))
+            seen_paths.add(log_dir)
     
     # Config directory and .env file
     dav_dir = Path.home() / ".dav"
@@ -285,12 +293,43 @@ def run_uninstall(confirm: bool = True) -> None:
     
     console.print(f"\n  [red]✗[/red] dav-ai package (via {method})")
     
+    # Check for root installation
+    root_dav_dir = Path("/root/.dav")
+    has_root_installation = root_dav_dir.exists()
+    
+    # Check for cron jobs
+    has_cron_jobs = False
+    try:
+        crontab_result = subprocess.run(
+            ["crontab", "-l"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if crontab_result.returncode == 0:
+            # Check if any cron jobs contain "dav"
+            if "dav" in crontab_result.stdout.lower():
+                has_cron_jobs = True
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    
     # Step 3: Confirm
     if confirm:
         console.print("\n[bold red]Warning:[/bold red] This will permanently:")
         console.print("  • Delete all Dav data files and configuration")
+        console.print("  • Delete automation logs")
         console.print("  • Uninstall the dav-ai package")
         console.print("  • Remove the 'dav' command from your system\n")
+        
+        if has_root_installation:
+            console.print("[yellow]⚠ Note:[/yellow] Root installation detected at [cyan]/root/.dav[/cyan]")
+            console.print("  Root's configuration will NOT be removed automatically.")
+            console.print("  To remove it manually: [cyan]sudo rm -rf /root/.dav[/cyan]\n")
+        
+        if has_cron_jobs:
+            console.print("[yellow]⚠ Note:[/yellow] Cron jobs containing 'dav' were detected.")
+            console.print("  Cron jobs will NOT be removed automatically.")
+            console.print("  To remove them: [cyan]crontab -e[/cyan] (then delete the lines)\n")
         
         if not Confirm.ask("Continue with complete uninstall?", default=False):
             console.print("[yellow]Uninstall cancelled.[/yellow]")

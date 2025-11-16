@@ -128,3 +128,31 @@ def get_max_context_messages() -> int:
             return DEFAULT_MAX_CONTEXT_MESSAGES
     return DEFAULT_MAX_CONTEXT_MESSAGES
 
+
+def get_automation_sudo_method() -> str:
+    """Get automation sudo method preference."""
+    return os.getenv("DAV_AUTOMATION_SUDO_METHOD", "sudoers").lower()
+
+
+def get_automation_log_dir() -> Path:
+    """Get directory for automation logs."""
+    log_dir = os.getenv("DAV_AUTOMATION_LOG_DIR")
+    if log_dir:
+        return Path(log_dir).expanduser()
+    return Path.home() / ".dav" / "logs"
+
+
+def get_automation_log_retention_days() -> int:
+    """Get number of days to retain automation logs."""
+    value = os.getenv("DAV_AUTOMATION_LOG_RETENTION_DAYS")
+    if value:
+        try:
+            parsed = int(value)
+            if parsed <= 0:
+                return 30
+            # Cap at 365 days
+            return min(parsed, 365)
+        except ValueError:
+            return 30
+    return 30
+

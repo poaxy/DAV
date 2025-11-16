@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import typer
 from rich.console import Console
@@ -102,6 +102,10 @@ def main(
         "--auto-yes",
         help="Automatically confirm command execution when using --execute",
     ),
+    automation: bool = typer.Option(False, "--automation", help="Enable automation mode (no confirmations, auto-execute, logging)"),
+    schedule: Optional[str] = typer.Option(None, "--schedule", help="Schedule a cron job with natural language (e.g., 'update system every night at 3')"),
+    cron_setup: bool = typer.Option(False, "--cron-setup", help="Show cron setup examples and instructions"),
+    install_for_root: bool = typer.Option(False, "--install-for-root", help="Install Dav for root user (alternative to sudoers)"),
 ):
     """Dav - An intelligent, context-aware AI assistant for the Linux terminal."""
     
@@ -141,6 +145,31 @@ def main(
         history_manager.clear_history()
         console.print("History cleared.")
         return
+    
+    # Handle automation-related commands
+    if cron_setup:
+        from dav.cron_helper import show_cron_examples, show_sudoers_examples
+        console.print("\n[bold]Cron Setup Guide[/bold]\n")
+        console.print(show_cron_examples())
+        console.print("\n[bold]Sudoers Configuration[/bold]\n")
+        console.print(show_sudoers_examples())
+        return
+    
+    if install_for_root:
+        from dav.setup import run_root_installation
+        run_root_installation()
+        return
+    
+    if schedule:
+        _handle_schedule_command(schedule)
+        return
+    
+    # Detect automation mode early (before reading stdin)
+    is_automation_mode = automation
+    if not is_automation_mode and not sys.stdin.isatty():
+        # Auto-detect non-TTY environment
+        is_automation_mode = True
+        console.print("[yellow]Auto-detected automation mode (non-TTY)[/yellow]")
     
     # Check for stdin input (for piped commands like: echo "test" | dav)
     stdin_content = None
@@ -192,14 +221,37 @@ def main(
     history_manager = HistoryManager()
     session_manager = SessionManager(session_id=session)
     
+    # Initialize automation logger if in automation mode
+    automation_logger = None
+    if is_automation_mode:
+        from dav.automation import AutomationLogger
+        automation_logger = AutomationLogger()
+        automation_logger.log_info("Automation mode enabled")
+        automation_logger.log_info(f"Task: {query or 'interactive mode'}")
+        # Auto-enable execute mode in automation
+        execute = True
+        auto_confirm = True
+        
+        # In automation mode, require a query (can't use interactive mode)
+        if not query:
+            render_error("Automation mode requires a query. Use 'dav --automation \"your task\"'")
+            if automation_logger:
+                automation_logger.log_error("Automation mode requires a query")
+                automation_logger.close()
+            sys.exit(1)
+    
     # If no query provided and not in interactive mode, default to interactive execute mode
     if not query and not interactive:
         interactive = True
         execute = True  # Default to execute mode for easier access to main functionality
     
     if interactive:
-        run_interactive_mode(ai_backend, history_manager, session_manager, execute, auto_confirm)
-        return
+        # In automation mode, don't use interactive mode (they're mutually exclusive)
+        if is_automation_mode:
+            render_warning("Automation mode and interactive mode are mutually exclusive. Using automation mode.")
+        else:
+            run_interactive_mode(ai_backend, history_manager, session_manager, execute, auto_confirm)
+            return
     
     if not query:
         render_error("No query provided. Use 'dav \"your question\"' or 'dav -i' for interactive mode.")
@@ -211,6 +263,7 @@ def main(
         stdin_content=stdin_content,
         execute_mode=execute,
         interactive_mode=False,
+        automation_mode=is_automation_mode,
     )
     
     try:
@@ -219,6 +272,11 @@ def main(
             ai_backend.stream_response(full_prompt, system_prompt=system_prompt),
                 loading_message=f"Generating response with {backend_name}...",
         )
+        
+        # Log AI response if in automation mode
+        if automation_logger:
+            automation_logger.log_info("AI Response received")
+            automation_logger.log_info(f"Response: {response[:500]}...")  # Log first 500 chars
 
         _process_response(
             response,
@@ -230,13 +288,27 @@ def main(
             auto_confirm,
             context_data,
             is_interactive=False,
+            automation_mode=is_automation_mode,
+            automation_logger=automation_logger,
         )
+        
+        # Close logger (summary is logged in feedback loop if commands were executed)
+        if automation_logger:
+            log_path = automation_logger.get_log_path()
+            automation_logger.close()
+            console.print(f"\n[green]Log saved to: {log_path}[/green]")
 
     except KeyboardInterrupt:
         console.print("\n\n[bold yellow]Interrupted by user[/bold yellow]")
+        if automation_logger:
+            automation_logger.log_error("Interrupted by user")
+            automation_logger.close()
         sys.exit(0)
     except Exception as e:
         render_error(f"Error: {str(e)}")
+        if automation_logger:
+            automation_logger.log_error(f"Error: {str(e)}")
+            automation_logger.close()
         sys.exit(1)
 
 
@@ -246,6 +318,7 @@ def _build_prompt_with_context(
     stdin_content: Optional[str] = None,
     execute_mode: bool = False,
     interactive_mode: bool = False,
+    automation_mode: bool = False,
 ) -> Tuple[Dict, str, str]:
     """
     Build prompt with context and session history.
@@ -273,7 +346,7 @@ def _build_prompt_with_context(
         if session_context:
             context_str = session_context + "\n" + context_str
         
-        system_prompt = get_system_prompt(execute_mode=execute_mode, interactive_mode=interactive_mode)
+        system_prompt = get_system_prompt(execute_mode=execute_mode, interactive_mode=interactive_mode, automation_mode=automation_mode)
     
     return context, context_str, system_prompt
 
@@ -288,6 +361,8 @@ def _process_response(
     auto_confirm: bool,
     context_data: Optional[Dict],
     is_interactive: bool = False,
+    automation_mode: bool = False,
+    automation_logger: Optional[Any] = None,
 ) -> None:
     """
     Process and save response, optionally execute commands.
@@ -326,7 +401,7 @@ def _process_response(
         if has_marker:
             # Use feedback loop for conditional execution
             confirm = not auto_confirm
-            _execute_with_feedback_loop(
+            execution_results = _execute_with_feedback_loop(
                 initial_response=response,
                 query=query,
                 ai_backend=ai_backend,
@@ -335,7 +410,12 @@ def _process_response(
                 confirm=confirm,
                 auto_confirm=auto_confirm,
                 is_interactive=is_interactive,
+                automation_mode=automation_mode,
+                automation_logger=automation_logger,
             )
+            
+            # Execution results are logged in the feedback loop
+            pass
         else:
             # No commands to execute, just save response
             pass
@@ -448,7 +528,9 @@ def _execute_with_feedback_loop(
     confirm: bool,
     auto_confirm: bool,
     is_interactive: bool,
-) -> None:
+    automation_mode: bool = False,
+    automation_logger: Optional[Any] = None,
+) -> List:
     """
     Execute commands with automatic feedback loop.
     
@@ -477,21 +559,31 @@ def _execute_with_feedback_loop(
     except CommandPlanError:
         pass  # Will fall back to heuristic parsing
     
+    # Initialize execution results list
+    execution_results: List = []
+    
     # Execute initial commands
     console.print()
     render_info("[bold cyan]Step 1:[/bold cyan] Executing initial commands...")
     console.print()
+    
+    if automation_logger:
+        automation_logger.log_info("Step 1: Executing initial commands")
     
     execution_results = execute_commands_from_response(
         initial_response,
         confirm=confirm,
         context=context_data,
         plan=plan,
+        automation_mode=automation_mode,
+        automation_logger=automation_logger,
     )
     
     if not execution_results:
         render_warning("No commands were executed. Task may already be complete.")
-        return
+        if automation_logger:
+            automation_logger.log_info("No commands were executed")
+        return []
     
     # Store initial results in session
     session_manager.add_execution_results(execution_results)
@@ -564,6 +656,9 @@ def _execute_with_feedback_loop(
         render_info(f"[bold cyan]Step {iteration} (continued):[/bold cyan] Executing follow-up commands...")
         console.print()
         
+        if automation_logger:
+            automation_logger.log_info(f"Step {iteration}: Executing follow-up commands")
+        
         # Extract command plan if available
         plan = None
         try:
@@ -571,24 +666,37 @@ def _execute_with_feedback_loop(
         except CommandPlanError:
             pass  # Will fall back to heuristic parsing
         
-        execution_results = execute_commands_from_response(
+        step_results = execute_commands_from_response(
             followup_response,
             confirm=confirm,
             context=context_data,
             plan=plan,
+            automation_mode=automation_mode,
+            automation_logger=automation_logger,
         )
         
-        if not execution_results:
+        execution_results.extend(step_results)
+        
+        if not step_results:
             render_warning("No commands found in AI response. Task may be complete.")
             break
         
         # Store results in session
-        session_manager.add_execution_results(execution_results)
+        session_manager.add_execution_results(step_results)
     
     if iteration >= max_iterations:
         render_error(f"Reached maximum iteration limit ({max_iterations}). Stopping feedback loop.")
         console.print()
         render_warning("If the task is not complete, you may need to continue manually.")
+        if automation_logger:
+            automation_logger.log_error(f"Reached maximum iteration limit ({max_iterations})")
+    
+    # Log final summary if in automation mode (only once at the end)
+    if automation_logger and execution_results:
+        task_status = "Task (incomplete)" if iteration >= max_iterations else "Task completed"
+        automation_logger.log_summary(f"{task_status}: {query}", execution_results)
+    
+    return execution_results
 
 
 def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
@@ -648,6 +756,124 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
             render_error(f"Error: {str(e)}")
     
     console.print("\n[bold]Goodbye![/bold]")
+
+
+def _handle_schedule_command(schedule_input: str) -> None:
+    """Handle --schedule command to set up cron jobs."""
+    from dav.ai_backend import AIBackend, get_system_prompt
+    from dav.cron_helper import add_cron_job, parse_schedule_to_cron
+    from dav.context import build_context, format_context_for_prompt
+    
+    console.print("[cyan]Parsing schedule and setting up cron job...[/cyan]\n")
+    
+    # Check if setup is needed
+    if _auto_setup_if_needed():
+        import importlib
+        from dav import config
+        importlib.reload(config)
+    
+    try:
+        ai_backend = AIBackend()
+    except ValueError as e:
+        render_error(str(e))
+        if "API key not found" in str(e):
+            console.print("\n[yellow]Tip:[/yellow] Run [cyan]dav --setup[/cyan] to configure your API keys.")
+        sys.exit(1)
+    
+    # Build context for AI
+    context = build_context(query=schedule_input)
+    context_str = format_context_for_prompt(context)
+    
+    # Create prompt for AI to parse schedule
+    schedule_prompt = f"""Parse this schedule request and extract:
+1. The task description (what to do)
+2. The schedule in cron format (e.g., "0 3 * * *" for daily at 3 AM)
+
+User request: {schedule_input}
+
+Respond with ONLY a JSON object in this format:
+{{
+  "task": "task description here",
+  "schedule": "0 3 * * *"
+}}
+
+Common schedule patterns:
+- "every night at 3" or "daily at 3" → "0 3 * * *"
+- "every day" → "0 0 * * *"
+- "weekly" or "every week" → "0 0 * * 0"
+- "monthly" → "0 0 1 * *"
+- "every 6 hours" → "0 */6 * * *"
+- "at 3 PM" → "0 15 * * *"
+- "at 3 AM" → "0 3 * * *"
+"""
+    
+    system_prompt = """You are a schedule parser. Extract the task and convert the schedule to cron format.
+Return ONLY valid JSON with "task" and "schedule" fields."""
+    
+    try:
+        # Get AI response
+        response = ai_backend.get_response(schedule_prompt, system_prompt=system_prompt)
+        
+        # Parse JSON response
+        import json
+        import re
+        
+        # Extract JSON from response (look for JSON block or inline JSON)
+        # First try to find JSON in code blocks
+        json_block_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+        if json_block_match:
+            json_str = json_block_match.group(1)
+        else:
+            # Try to find inline JSON object
+            json_inline_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
+            if json_inline_match:
+                json_str = json_inline_match.group(0)
+            else:
+                json_str = None
+        
+        if not json_str:
+            # Try fallback parsing
+            cron_schedule = parse_schedule_to_cron(schedule_input)
+            if cron_schedule:
+                task = schedule_input  # Use full input as task
+            else:
+                render_error("Could not parse schedule. Please use format like 'task every night at 3'")
+                sys.exit(1)
+        else:
+            try:
+                parsed = json.loads(json_str)
+                task = parsed.get("task", schedule_input)
+                cron_schedule = parsed.get("schedule")
+                
+                if not cron_schedule:
+                    # Try fallback
+                    cron_schedule = parse_schedule_to_cron(schedule_input)
+                    if not cron_schedule:
+                        render_error("Could not determine schedule. Please be more specific.")
+                        sys.exit(1)
+            except json.JSONDecodeError:
+                # Try fallback
+                cron_schedule = parse_schedule_to_cron(schedule_input)
+                if cron_schedule:
+                    task = schedule_input
+                else:
+                    render_error("Could not parse schedule format.")
+                    sys.exit(1)
+        
+        # Add cron job
+        success, message = add_cron_job(cron_schedule, task, auto_confirm=True)
+        
+        if success:
+            console.print(f"[green]✓ {message}[/green]")
+            console.print(f"\n[cyan]Cron job added successfully![/cyan]")
+            console.print(f"[dim]View with: crontab -l[/dim]")
+        else:
+            render_error(message)
+            sys.exit(1)
+    
+    except Exception as e:
+        render_error(f"Error setting up schedule: {str(e)}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

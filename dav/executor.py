@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from dav.command_plan import CommandPlan
 from dav.terminal import (
@@ -23,6 +23,9 @@ from dav.terminal import (
 
 COMMAND_TIMEOUT_SECONDS = 300
 THREAD_JOIN_TIMEOUT_SECONDS = 2
+
+# Global sudo handler cache (created once per process)
+_sudo_handler_cache: Optional[Any] = None
 
 
 @dataclass
@@ -177,7 +180,7 @@ def extract_commands(text: str) -> List[str]:
     return unique_commands
 
 
-def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = None, stream_output: bool = True) -> Tuple[bool, str, str, int]:
+def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = None, stream_output: bool = True, automation_mode: bool = False, automation_logger: Optional[Any] = None) -> Tuple[bool, str, str, int]:
     """
     Execute a command securely with real-time output streaming.
     
@@ -191,13 +194,50 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
         (success, stdout, stderr, return_code)
     """
     if is_dangerous_command(command):
-        render_error(f"Command blocked: potentially dangerous operation detected")
+        error_msg = "Command blocked: potentially dangerous operation detected"
+        render_error(error_msg)
+        if automation_logger:
+            automation_logger.log_error(error_msg)
         return False, "", "Command blocked for safety", 1
+    
+    # In automation mode, skip confirmations and use non-streaming output for logging
+    if automation_mode:
+        confirm = False
+        stream_output = False
+        
+        # Check if command needs sudo and handle it
+        # Use regex to match "sudo" as a word (not part of another word like "pseudo")
+        needs_sudo = bool(re.search(r'\bsudo\b', command))
+        if needs_sudo:
+            from dav.config import get_automation_sudo_method
+            from dav.sudo_handler import SudoHandler
+            
+            sudo_method = get_automation_sudo_method()
+            if sudo_method == "sudoers":
+                # Use cached sudo handler (create once, reuse)
+                global _sudo_handler_cache
+                if _sudo_handler_cache is None:
+                    _sudo_handler_cache = SudoHandler()
+                sudo_handler = _sudo_handler_cache
+                
+                if not sudo_handler.can_run_sudo():
+                    error_msg = "Password-less sudo not available. Configure sudoers NOPASSWD or use --install-for-root"
+                    render_error(error_msg)
+                    if automation_logger:
+                        automation_logger.log_error(error_msg)
+                        automation_logger.log_info(sudo_handler.get_sudoers_instructions())
+                    return False, "", error_msg, 1
+                # Command already has sudo prefix, so we execute it as-is
+                # The sudo check above ensures password-less sudo is available
     
     if confirm:
         render_command(command)
         if not confirm_action("Execute this command?"):
             return False, "", "User cancelled", 1
+    
+    # Log command if in automation mode
+    if automation_logger:
+        automation_logger.log_command(command)
     
     try:
         command = os.path.expandvars(os.path.expanduser(command))
@@ -217,13 +257,24 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
                 timeout=COMMAND_TIMEOUT_SECONDS,
                 cwd=cwd,
             )
+            
+            # Log output if in automation mode
+            if automation_logger:
+                automation_logger.log_output(result.stdout, result.stderr, result.returncode)
+            
             return result.returncode == 0, result.stdout, result.stderr, result.returncode
     
     except subprocess.TimeoutExpired:
-        render_error("Command execution timed out")
+        error_msg = "Command execution timed out"
+        render_error(error_msg)
+        if automation_logger:
+            automation_logger.log_error(f"{error_msg}: {command}")
         return False, "", "Command timed out", 124
     except Exception as e:
-        render_error(f"Error executing command: {str(e)}")
+        error_msg = f"Error executing command: {str(e)}"
+        render_error(error_msg)
+        if automation_logger:
+            automation_logger.log_error(f"{error_msg}: {command}")
         return False, "", str(e), 1
 
 
@@ -401,7 +452,7 @@ def _print_command_output(stdout: str, stderr: str) -> None:
         print(stderr, file=sys.stderr)
 
 
-def execute_plan(plan: CommandPlan, confirm: bool = True, context: Optional[Dict] = None) -> List[ExecutionResult]:
+def execute_plan(plan: CommandPlan, confirm: bool = True, context: Optional[Dict] = None, automation_mode: bool = False, automation_logger: Optional[Any] = None) -> List[ExecutionResult]:
     """
     Execute a structured command plan.
     
@@ -436,7 +487,14 @@ def execute_plan(plan: CommandPlan, confirm: bool = True, context: Optional[Dict
         if len(plan.commands) > 1:
             render_info(f"Running command {idx}/{len(plan.commands)}")
 
-        success, stdout, stderr, return_code = execute_command(command, confirm=False, cwd=plan.cwd)
+        success, stdout, stderr, return_code = execute_command(
+            command, 
+            confirm=False, 
+            cwd=plan.cwd,
+            stream_output=not automation_mode,
+            automation_mode=automation_mode,
+            automation_logger=automation_logger,
+        )
         
         result = ExecutionResult(
             command=command,
@@ -463,6 +521,8 @@ def execute_commands_from_response(
     confirm: bool = True,
     context: Optional[Dict] = None,
     plan: Optional[CommandPlan] = None,
+    automation_mode: bool = False,
+    automation_logger: Optional[Any] = None,
 ) -> List[ExecutionResult]:
     """
     Execute commands extracted from response or provided via command plan.
@@ -473,7 +533,7 @@ def execute_commands_from_response(
     results: List[ExecutionResult] = []
 
     if plan is not None:
-        return execute_plan(plan, confirm=confirm, context=context)
+        return execute_plan(plan, confirm=confirm, context=context, automation_mode=automation_mode, automation_logger=automation_logger)
 
     commands = extract_commands(response)
     
@@ -490,7 +550,13 @@ def execute_commands_from_response(
         if len(commands) > 1:
             render_info(f"Executing command {i}/{len(commands)}")
         
-        success, stdout, stderr, return_code = execute_command(command, confirm=confirm)
+        success, stdout, stderr, return_code = execute_command(
+            command, 
+            confirm=confirm,
+            stream_output=not automation_mode,  # Don't stream in automation mode
+            automation_mode=automation_mode,
+            automation_logger=automation_logger,
+        )
         
         result = ExecutionResult(
             command=command,
