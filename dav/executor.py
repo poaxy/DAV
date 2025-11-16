@@ -338,19 +338,58 @@ def _execute_command_streaming(command: str, cwd: Optional[str] = None, env: Opt
 
 
 def _platform_matches(plan: CommandPlan, context: Optional[Dict]) -> bool:
+    """
+    Check if command plan platform matches the current system.
+    
+    Returns:
+        True if platforms match or if platform is None (platform-agnostic commands)
+        False if platforms explicitly don't match
+    """
     if plan.platform is None or not context:
         return True
 
     os_info = context.get("os", {}) if isinstance(context, dict) else {}
-    candidates = set(p.lower() for p in plan.platform)
+    candidates = set(p.lower().strip() for p in plan.platform)
 
     system_name = str(os_info.get("system", "")).lower()
     distribution_id = str(os_info.get("distribution_id", "")).lower()
     distribution = str(os_info.get("distribution", "")).lower()
 
+    # Build set of current system identifiers
     values = {system_name, distribution_id, distribution}
     values = {v for v in values if v}
-
+    
+    # Add platform aliases for better matching
+    # macOS/Darwin aliases
+    if system_name == "darwin":
+        values.add("darwin")
+        values.add("macos")
+        values.add("mac")
+        values.add("osx")
+    
+    # Linux distribution aliases
+    if system_name == "linux":
+        values.add("linux")
+        values.add("unix")
+        # Add common distribution aliases
+        if distribution_id:
+            values.add(distribution_id)
+        if distribution:
+            values.add(distribution)
+    
+    # Windows aliases
+    if system_name == "windows":
+        values.add("windows")
+        values.add("win")
+        values.add("win32")
+    
+    # Check for generic platform identifiers that match any Unix-like system
+    generic_unix = {"unix", "posix", "linux", "darwin", "macos", "mac", "osx", "bsd"}
+    if candidates & generic_unix and system_name in {"linux", "darwin", "freebsd", "openbsd", "netbsd"}:
+        # If plan specifies generic Unix and we're on a Unix-like system, it matches
+        return True
+    
+    # Check for exact matches
     return bool(candidates & values)
 
 
@@ -378,9 +417,15 @@ def execute_plan(plan: CommandPlan, confirm: bool = True, context: Optional[Dict
     if plan.notes:
         render_info(f"Notes: {plan.notes}")
 
-    if context is not None and not _platform_matches(plan, context):
-        render_warning("Command plan appears to target a different platform. Aborting execution.")
-        return results
+    # Check platform compatibility (warn but don't abort)
+    if context is not None and plan.platform is not None and not _platform_matches(plan, context):
+        os_info = context.get("os", {}) if isinstance(context, dict) else {}
+        current_system = os_info.get("system", "unknown")
+        plan_platforms = ", ".join(plan.platform)
+        render_warning(
+            f"Command plan targets platform(s): {plan_platforms}, but current system is: {current_system}. "
+            f"Proceeding with execution, but commands may not work as expected."
+        )
 
     if confirm:
         if not confirm_action("Execute ALL commands above?"):
