@@ -84,14 +84,77 @@ def detect_installation_method() -> str:
     return 'unknown'
 
 
+def _clear_python_cache(install_location: str = None) -> None:
+    """Clear Python bytecode cache to ensure fresh imports after update."""
+    # If we know the install location, clear cache there
+    if install_location:
+        cache_dirs = [
+            Path(install_location) / "__pycache__",
+            Path(install_location) / "dav" / "__pycache__",
+        ]
+        for cache_dir in cache_dirs:
+            if cache_dir.exists():
+                try:
+                    import shutil
+                    shutil.rmtree(cache_dir)
+                except Exception:
+                    pass
+    
+    # Also try to find and clear cache in common locations
+    try:
+        import site
+        for site_dir in site.getsitepackages():
+            dav_cache = Path(site_dir) / "dav" / "__pycache__"
+            if dav_cache.exists():
+                try:
+                    import shutil
+                    shutil.rmtree(dav_cache)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
 def update_with_pipx() -> bool:
     """Update Dav using pipx."""
     try:
         console.print("[cyan]Updating Dav using pipx...[/cyan]")
         env = {**os.environ, "PIP_NO_CACHE_DIR": "1"}
 
-        # Use pipx upgrade to update the package (preserves configuration)
-        # This will pull the latest code from git
+        # First, try to get the pipx venv location to clear cache
+        try:
+            result = subprocess.run(
+                ['pipx', 'list', '--json'],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                import json
+                pipx_data = json.loads(result.stdout)
+                if 'venvs' in pipx_data and 'dav-ai' in pipx_data['venvs']:
+                    venv_path = pipx_data['venvs']['dav-ai']['metadata']['venv']
+                    # Clear cache before update
+                    _clear_python_cache(venv_path)
+        except Exception:
+            pass  # Continue even if cache clearing fails
+
+        # Use pipx reinstall to ensure a completely fresh installation
+        # This is more reliable than upgrade for ensuring all files are updated
+        result = subprocess.run(
+            ['pipx', 'reinstall', '--force', 'dav-ai'],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            env=env
+        )
+
+        if result.returncode == 0:
+            console.print("[green]✓ Dav updated successfully![/green]")
+            return True
+
+        # If reinstall fails, try upgrade
+        console.print("[yellow]Reinstall failed, trying upgrade...[/yellow]")
         result = subprocess.run(
             ['pipx', 'upgrade', '--force', 'dav-ai'],
             capture_output=True,
@@ -138,6 +201,24 @@ def update_with_pip_user() -> bool:
     """Update Dav using pip --user."""
     try:
         console.print("[cyan]Updating Dav using pip...[/cyan]")
+        
+        # Get install location to clear cache
+        try:
+            result = subprocess.run(
+                [sys.executable, '-m', 'pip', 'show', 'dav-ai'],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    if line.startswith('Location:'):
+                        install_location = line.split(':', 1)[1].strip()
+                        _clear_python_cache(install_location)
+                        break
+        except Exception:
+            pass  # Continue even if cache clearing fails
+        
         # Use --no-cache-dir to force fresh download from git
         # Remove --no-deps to ensure dependencies are also updated
         # Use --upgrade --force-reinstall to ensure latest code is pulled
@@ -171,6 +252,18 @@ def update_with_venv() -> bool:
     """Update Dav in current virtual environment."""
     try:
         console.print("[cyan]Updating Dav in current virtual environment...[/cyan]")
+        
+        # Clear cache in current venv
+        try:
+            import site
+            for site_dir in site.getsitepackages():
+                dav_cache = Path(site_dir) / "dav" / "__pycache__"
+                if dav_cache.exists():
+                    _clear_python_cache(str(site_dir))
+                    break
+        except Exception:
+            pass  # Continue even if cache clearing fails
+        
         # Use --no-cache-dir to force fresh download from git
         # Remove --no-deps to ensure dependencies are also updated
         # Use --upgrade --force-reinstall to ensure latest code is pulled
@@ -246,6 +339,8 @@ def run_update(confirm: bool = True) -> None:
     if success:
         console.print("\n[bold green]✓ Update complete![/bold green]")
         console.print("[green]Your configuration, data, and automation logs have been preserved.[/green]\n")
+        console.print("[bold yellow]⚠ Important:[/bold yellow] Please restart your terminal or run [cyan]hash -r[/cyan] to refresh command cache.")
+        console.print("The new version will be available in new terminal sessions.\n")
     else:
         console.print("\n[bold red]✗ Update failed[/bold red]")
         console.print("Please try updating manually or check the error messages above.\n")

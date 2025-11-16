@@ -148,11 +148,49 @@ def main(
     
     # Handle automation-related commands
     if cron_setup:
-        from dav.cron_helper import show_cron_examples, show_sudoers_examples
+        from dav.cron_helper import show_cron_examples
+        from dav.sudo_handler import SudoHandler
+        from rich.prompt import Confirm
+        
         console.print("\n[bold]Cron Setup Guide[/bold]\n")
         console.print(show_cron_examples())
-        console.print("\n[bold]Sudoers Configuration[/bold]\n")
-        console.print(show_sudoers_examples())
+        
+        # Check sudoers status
+        sudo_handler = SudoHandler()
+        is_configured, status_msg = sudo_handler.check_sudoers_setup()
+        
+        console.print("\n[bold]Sudoers Configuration Status[/bold]\n")
+        if is_configured:
+            console.print(f"[green]✓ {status_msg}[/green]\n")
+        else:
+            console.print(f"[yellow]⚠ {status_msg}[/yellow]\n")
+            console.print("[bold]Would you like to configure password-less sudo automatically?[/bold]")
+            console.print("[dim]This will create /etc/sudoers.d/dav-automation with appropriate permissions.[/dim]\n")
+            
+            if Confirm.ask("Configure sudoers NOPASSWD automatically?", default=True):
+                console.print("\n[cyan]Configuring sudoers...[/cyan]")
+                console.print("[dim]You may be prompted for your sudo password.[/dim]\n")
+                
+                # Ask for security preference
+                use_specific = Confirm.ask(
+                    "Use specific commands only (more secure)?",
+                    default=True
+                )
+                
+                success, message = sudo_handler.configure_sudoers(specific_commands=use_specific)
+                
+                if success:
+                    console.print(f"[green]✓ {message}[/green]\n")
+                    console.print("[green]Sudoers configuration complete![/green]")
+                    console.print("[dim]You can now use Dav automation with sudo commands.[/dim]\n")
+                else:
+                    console.print(f"[red]✗ {message}[/red]\n")
+                    console.print("[yellow]Manual configuration may be required.[/yellow]")
+                    console.print(sudo_handler.get_sudoers_instructions())
+            else:
+                console.print("\n[yellow]Skipping automatic configuration.[/yellow]")
+                console.print(sudo_handler.get_sudoers_instructions())
+        
         return
     
     if install_for_root:
