@@ -293,9 +293,14 @@ def run_uninstall(confirm: bool = True) -> None:
     
     console.print(f"\n  [red]✗[/red] dav-ai package (via {method})")
     
-    # Check for root installation
+    # Check for root installation (handle permission errors gracefully)
     root_dav_dir = Path("/root/.dav")
-    has_root_installation = root_dav_dir.exists()
+    has_root_installation = False
+    try:
+        has_root_installation = root_dav_dir.exists()
+    except (PermissionError, OSError):
+        # Can't check /root/.dav due to permissions - assume no root installation
+        pass
     
     # Check for cron jobs
     has_cron_jobs = False

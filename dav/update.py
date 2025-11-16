@@ -307,9 +307,15 @@ def run_update(confirm: bool = True) -> None:
     
     console.print(f"\n[bold]Detected installation method:[/bold] {method}\n")
     
-    # Check for root installation
+    # Check for root installation (handle permission errors gracefully)
     root_dav_dir = Path("/root/.dav")
-    has_root_installation = root_dav_dir.exists()
+    has_root_installation = False
+    try:
+        has_root_installation = root_dav_dir.exists()
+    except (PermissionError, OSError):
+        # Can't check /root/.dav due to permissions - assume no root installation
+        pass
+    
     if has_root_installation:
         console.print("[yellow]⚠ Note:[/yellow] Root installation detected at [cyan]/root/.dav[/cyan]")
         console.print("  Root's installation will need to be updated separately if needed.")
