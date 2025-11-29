@@ -230,6 +230,7 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
     Returns:
         (success, stdout, stderr, return_code)
     """
+    # Check for dangerous commands (but allow all other commands for AI flexibility)
     if is_dangerous_command(command, automation_mode=automation_mode):
         error_msg = "Command blocked: potentially dangerous operation detected"
         if automation_mode:
@@ -274,18 +275,41 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
             return False, "", "User cancelled", 1
     
     try:
-        command = os.path.expandvars(os.path.expanduser(command))
-        if not command.strip():
-            return False, "", "Empty command", 1
-
-        if stream_output:
+        # Parse and validate command for safe execution
+        from dav.command_validator import prepare_command_for_execution, CommandParseError
+        
+        try:
             env = os.environ.copy()
             env['PYTHONUNBUFFERED'] = '1'
-            success, stdout, stderr, return_code = _execute_command_streaming(command, cwd, env)
+            
+            command_list, use_shell, script_path = prepare_command_for_execution(
+                command,
+                cwd=cwd,
+                env=env
+            )
+            
+            # use_shell should always be False for security
+            if use_shell:
+                return False, "", "Command requires shell features that are not safely supported", 1
+            
+        except CommandParseError as e:
+            error_msg = f"Command parsing failed: {str(e)}"
+            render_error(error_msg)
+            if automation_logger:
+                automation_logger.log_error(error_msg)
+            return False, "", error_msg, 1
+        
+        # Store original command for logging
+        original_command = command
+
+        if stream_output:
+            success, stdout, stderr, return_code = _execute_command_streaming(
+                command_list, cwd, env, script_path
+            )
             # Record streaming command execution for summary
             if automation_logger:
                 automation_logger.record_command_execution(
-                    command=command,
+                    command=original_command,
                     success=success,
                     return_code=return_code,
                     stdout=stdout,
@@ -294,18 +318,26 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
             return success, stdout, stderr, return_code
         else:
             result = subprocess.run(
-                command,
-                shell=True,
+                command_list,
+                shell=False,  # CRITICAL: Use shell=False for security
                 capture_output=True,
                 text=True,
                 timeout=COMMAND_TIMEOUT_SECONDS,
                 cwd=cwd,
+                env=env,
             )
+            
+            # Clean up temporary script if created
+            if script_path and script_path.exists():
+                try:
+                    script_path.unlink()
+                except Exception:
+                    pass
             
             # Record command execution for summary report
             if automation_logger:
                 automation_logger.record_command_execution(
-                    command=command,
+                    command=original_command,
                     success=result.returncode == 0,
                     return_code=result.returncode,
                     stdout=result.stdout,
@@ -318,7 +350,7 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
         error_msg = "Command execution timed out"
         render_error(error_msg)
         if automation_logger:
-            automation_logger.log_error(f"{error_msg}: {command}")
+            automation_logger.log_error(f"{error_msg}: {original_command if 'original_command' in locals() else command}")
         return False, "", "Command timed out", 124
     except Exception as e:
         error_msg = f"Error executing command: {str(e)}"
@@ -328,14 +360,20 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
         return False, "", str(e), 1
 
 
-def _execute_command_streaming(command: str, cwd: Optional[str] = None, env: Optional[Dict[str, str]] = None) -> Tuple[bool, str, str, int]:
+def _execute_command_streaming(
+    command_list: List[str],
+    cwd: Optional[str] = None,
+    env: Optional[Dict[str, str]] = None,
+    script_path: Optional[Path] = None
+) -> Tuple[bool, str, str, int]:
     """
     Execute a command with real-time output streaming.
     
     Args:
-        command: Command string to execute
+        command_list: List of command arguments (for shell=False)
         cwd: Working directory
         env: Environment variables (merged with os.environ)
+        script_path: Path to temporary script if created (for cleanup)
     
     Returns:
         (success, stdout, stderr, return_code)
@@ -350,8 +388,8 @@ def _execute_command_streaming(command: str, cwd: Optional[str] = None, env: Opt
         process_env['PYTHONUNBUFFERED'] = '1'
         
         process = subprocess.Popen(
-            command,
-            shell=True,
+            command_list,
+            shell=False,  # CRITICAL: Use shell=False for security
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -427,6 +465,13 @@ def _execute_command_streaming(command: str, cwd: Optional[str] = None, env: Opt
         stdout_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS * 5)
         stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS * 5)
         
+        # Clean up temporary script if created
+        if script_path and script_path.exists():
+            try:
+                script_path.unlink()
+            except Exception:
+                pass
+        
         success = returncode == 0
         stdout = '\n'.join(stdout_lines)
         stderr = '\n'.join(stderr_lines)
@@ -434,6 +479,12 @@ def _execute_command_streaming(command: str, cwd: Optional[str] = None, env: Opt
         return success, stdout, stderr, returncode
         
     except Exception as e:
+        # Clean up temporary script on error
+        if script_path and script_path.exists():
+            try:
+                script_path.unlink()
+            except Exception:
+                pass
         render_error(f"Error executing command: {str(e)}")
         return False, '\n'.join(stdout_lines), '\n'.join(stderr_lines), 1
 
@@ -581,10 +632,19 @@ def execute_commands_from_response(
         List of ExecutionResult objects for each command executed.
     """
     results: List[ExecutionResult] = []
-
+    
+    # Validate AI response before extracting commands
+    from dav.input_validator import validate_ai_response
+    is_valid, validation_error = validate_ai_response(response)
+    if not is_valid:
+        render_warning(f"AI response validation warning: {validation_error}")
+        # Continue but log the warning
+        if automation_logger:
+            automation_logger.log_warning(f"Response validation warning: {validation_error}")
+    
     if plan is not None:
         return execute_plan(plan, confirm=confirm, context=context, automation_mode=automation_mode, automation_logger=automation_logger)
-
+    
     commands = extract_commands(response)
     
     if not commands:
@@ -595,6 +655,15 @@ def execute_commands_from_response(
         return results
     
     render_info(f"Found {len(commands)} command(s) to execute")
+    
+    # Check command execution rate limit
+    from dav.rate_limiter import check_command_rate_limit
+    is_allowed, rate_limit_error = check_command_rate_limit()
+    if not is_allowed:
+        render_warning(rate_limit_error or "Command execution rate limit exceeded")
+        if automation_logger:
+            automation_logger.log_warning("Command execution rate limit exceeded")
+        return results
     
     for i, command in enumerate(commands, 1):
         if len(commands) > 1:

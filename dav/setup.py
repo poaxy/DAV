@@ -122,6 +122,13 @@ DAV_SESSION_DIR=~/.dav/sessions
         with open(env_file, "w") as f:
             f.write(env_content)
         
+        # Set secure permissions immediately after creation
+        from dav.file_security import set_secure_permissions
+        if set_secure_permissions(env_file):
+            console.print(f"[green]✓[/green] Set secure permissions on configuration file")
+        else:
+            console.print(f"[yellow]⚠[/yellow] Warning: Could not set secure permissions on configuration file")
+        
         # Verify the file was written correctly
         with open(env_file, "r") as f:
             written_content = f.read()
@@ -298,7 +305,14 @@ DAV_SESSION_DIR=/root/.dav/sessions
             timeout=10,
         )
         
+        # Set secure permissions on root's .env file
+        subprocess.run(
+            ["sudo", "chmod", "0600", str(root_env_file)],
+            timeout=10,
+        )
+        
         console.print(f"[green]✓[/green] Root configuration created: {root_env_file}")
+        console.print(f"[green]✓[/green] Set secure permissions on root configuration file")
         
     except Exception as e:
         console.print(f"[red]✗[/red] Error setting up root configuration: {str(e)}")

@@ -379,25 +379,4 @@ def run_uninstall(confirm: bool = True) -> None:
         console.print("[red]Some steps failed. Please check the error messages above.[/red]\n")
 
 
-def show_uninstall_info() -> None:
-    """Show uninstall information."""
-    console.print(Panel.fit(
-        "[bold]Dav Uninstall Information[/bold]",
-        border_style="cyan"
-    ))
-    
-    console.print("\n[bold]Complete Uninstall:[/bold]\n")
-    console.print("To completely remove Dav (data + package) in one command:")
-    console.print("   [cyan]dav --uninstall[/cyan]\n")
-    
-    console.print("[bold]Partial Uninstall:[/bold]\n")
-    console.print("To remove only data files:")
-    console.print("   [cyan]dav --uninstall-data[/cyan]\n")
-    
-    console.print("[bold]Other useful commands:[/bold]\n")
-    console.print("  • List data files: [cyan]dav --list-data[/cyan]")
-    console.print("  • Show this info: [cyan]dav --uninstall-info[/cyan]\n")
-    
-    console.print("[bold]Dav data locations:[/bold]\n")
-    list_dav_files()
 

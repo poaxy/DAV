@@ -231,7 +231,7 @@ def main(
         importlib.reload(config)
     
     # Only import heavy AI/execution modules when actually needed
-    from dav.ai_backend import AIBackend, get_system_prompt
+    from dav.ai_backend import AIBackend
     from dav.command_plan import CommandPlanError, extract_command_plan
     from dav.context import build_context, format_context_for_prompt
     from dav.executor import COMMAND_EXECUTION_MARKER, execute_commands_from_response
@@ -242,7 +242,6 @@ def main(
         render_info,
         render_streaming_response_with_loading,
         render_warning,
-        show_loading_status,
     )
     
     # Try to initialize AI backend - this will fail if no API keys are configured
@@ -295,6 +294,36 @@ def main(
         render_error("No query provided. Use 'dav \"your question\"' or 'dav -i' for interactive mode.")
         sys.exit(1)
     
+    # Validate and sanitize user input
+    from dav.input_validator import (
+        sanitize_user_input,
+        detect_prompt_injection,
+        validate_query_length,
+    )
+    from dav.rate_limiter import check_api_rate_limit
+    
+    # Check rate limit
+    is_allowed, rate_limit_error = check_api_rate_limit()
+    if not is_allowed:
+        render_error(rate_limit_error or "Rate limit exceeded")
+        sys.exit(1)
+    
+    # Validate query length
+    is_valid, length_error = validate_query_length(query)
+    if not is_valid:
+        render_error(length_error or "Query validation failed")
+        sys.exit(1)
+    
+    # Sanitize user input
+    query = sanitize_user_input(query)
+    
+    # Check for prompt injection
+    is_injection, injection_reason = detect_prompt_injection(query)
+    if is_injection:
+        render_warning(f"Potential prompt injection detected: {injection_reason}")
+        render_warning("This query may be blocked or modified for security.")
+        # Continue but log the warning
+    
     context_data, full_prompt, system_prompt = _build_prompt_with_context(
         query,
         session_manager,
@@ -310,6 +339,15 @@ def main(
             ai_backend.stream_response(full_prompt, system_prompt=system_prompt),
                 loading_message=f"Generating response with {backend_name}...",
         )
+        
+        # Validate AI response
+        from dav.input_validator import validate_ai_response
+        is_valid_response, validation_error = validate_ai_response(response)
+        if not is_valid_response:
+            render_error(f"AI response validation failed: {validation_error}")
+            if automation_logger:
+                automation_logger.log_error(f"Response validation failed: {validation_error}")
+            sys.exit(1)
         
         # Record AI response for summary
         if automation_logger:
@@ -373,17 +411,15 @@ def _build_prompt_with_context(
     # Import here to avoid loading heavy modules for fast commands
     from dav.context import build_context, format_context_for_prompt
     from dav.ai_backend import get_system_prompt
-    from dav.terminal import show_loading_status
     
-    with show_loading_status("Building context..."):
-        context = build_context(query=query, stdin_content=stdin_content)
-        context_str = format_context_for_prompt(context)
-        
-        session_context = session_manager.get_conversation_context()
-        if session_context:
-            context_str = session_context + "\n" + context_str
-        
-        system_prompt = get_system_prompt(execute_mode=execute_mode, interactive_mode=interactive_mode, automation_mode=automation_mode)
+    context = build_context(query=query, stdin_content=stdin_content)
+    context_str = format_context_for_prompt(context)
+    
+    session_context = session_manager.get_conversation_context()
+    if session_context:
+        context_str = session_context + "\n" + context_str
+    
+    system_prompt = get_system_prompt(execute_mode=execute_mode, interactive_mode=interactive_mode, automation_mode=automation_mode)
     
     return context, context_str, system_prompt
 
@@ -469,6 +505,8 @@ def _format_execution_feedback(execution_results: List, original_query: str) -> 
     Returns:
         Formatted prompt string for AI
     """
+    from dav.input_validator import sanitize_command_output
+    
     lines = []
     lines.append("## Command Execution Results")
     lines.append("")
@@ -483,8 +521,9 @@ def _format_execution_feedback(execution_results: List, original_query: str) -> 
         lines.append("")
         
         if result.stdout:
+            # Sanitize and truncate output before feeding back to AI
+            stdout = sanitize_command_output(result.stdout)
             # Truncate very long output (keep first 2000 chars and last 500 chars)
-            stdout = result.stdout
             if len(stdout) > 3000:
                 stdout = stdout[:2000] + "\n[... truncated ...]\n" + stdout[-500:]
             lines.append("**Output:**")
@@ -494,8 +533,9 @@ def _format_execution_feedback(execution_results: List, original_query: str) -> 
             lines.append("")
         
         if result.stderr:
+            # Sanitize error output
+            stderr = sanitize_command_output(result.stderr)
             # Truncate very long error output
-            stderr = result.stderr
             if len(stderr) > 1000:
                 stderr = stderr[:800] + "\n[... truncated ...]\n" + stderr[-200:]
             lines.append("**Error Output:**")
@@ -757,6 +797,35 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                 console.print("Session cleared.\n")
                 continue
             
+            # Validate and sanitize user input in interactive mode
+            from dav.input_validator import (
+                sanitize_user_input,
+                detect_prompt_injection,
+                validate_query_length,
+            )
+            from dav.rate_limiter import check_api_rate_limit
+            
+            # Check rate limit
+            is_allowed, rate_limit_error = check_api_rate_limit()
+            if not is_allowed:
+                render_warning(rate_limit_error or "Rate limit exceeded. Please wait.")
+                continue
+            
+            # Validate query length
+            is_valid, length_error = validate_query_length(query)
+            if not is_valid:
+                render_error(length_error or "Query validation failed")
+                continue
+            
+            # Sanitize user input
+            query = sanitize_user_input(query)
+            
+            # Check for prompt injection
+            is_injection, injection_reason = detect_prompt_injection(query)
+            if is_injection:
+                render_warning(f"Potential prompt injection detected: {injection_reason}")
+                # Continue but warn user
+            
             context_data, full_prompt, system_prompt = _build_prompt_with_context(
                 query, session_manager, execute_mode=execute, interactive_mode=True
             )
@@ -796,6 +865,7 @@ def _handle_schedule_command(schedule_input: str) -> None:
     from dav.ai_backend import AIBackend, get_system_prompt
     from dav.cron_helper import add_cron_job, parse_schedule_to_cron
     from dav.context import build_context, format_context_for_prompt
+    from dav.terminal import render_error
     
     console.print("[cyan]Parsing schedule and setting up cron job...[/cyan]\n")
     

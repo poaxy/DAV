@@ -23,6 +23,10 @@ class SessionManager:
     def _load_session(self) -> None:
         """Load session from file if it exists."""
         if self.session_file.exists():
+            # Verify permissions before loading sensitive session data
+            from dav.file_security import verify_secure_permissions, check_and_warn_permissions
+            check_and_warn_permissions(self.session_file, "Session file")
+            
             try:
                 with open(self.session_file, "r") as f:
                     data = json.load(f)
@@ -42,6 +46,10 @@ class SessionManager:
             }
             with open(self.session_file, "w") as f:
                 json.dump(data, f, indent=2)
+            
+            # Set secure permissions after saving
+            from dav.file_security import set_secure_permissions
+            set_secure_permissions(self.session_file)
         except Exception as e:
             # Silently fail if we can't save
             pass

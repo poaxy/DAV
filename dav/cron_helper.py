@@ -241,24 +241,4 @@ Use 'dav --schedule' to set up cron jobs easily with natural language.
 """
 
 
-def show_sudoers_examples() -> str:
-    """Show sudoers NOPASSWD configuration examples."""
-    return """
-Sudoers NOPASSWD Configuration:
-
-1. Create sudoers file:
-   sudo visudo -f /etc/sudoers.d/dav-automation
-
-2. Add specific commands (recommended for security):
-   username ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/systemctl, /usr/bin/journalctl
-
-3. Or allow all commands (less secure):
-   username ALL=(ALL) NOPASSWD: ALL
-
-4. Test configuration:
-   sudo -n true
-
-Note: Replace 'username' with your actual username.
-Be specific with commands for better security.
-"""
 

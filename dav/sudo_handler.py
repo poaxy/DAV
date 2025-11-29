@@ -1,7 +1,6 @@
 """Sudo handling for automation mode."""
 
 import subprocess
-import sys
 from typing import Optional, Tuple
 
 
@@ -34,39 +33,6 @@ class SudoHandler:
         except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
             self._sudo_available = False
             return False
-    
-    def execute_with_sudo(self, command: str) -> Tuple[bool, str, str, int]:
-        """
-        Execute command with sudo (assumes NOPASSWD configured).
-        
-        Args:
-            command: Command to execute with sudo
-        
-        Returns:
-            Tuple of (success, stdout, stderr, return_code)
-        """
-        try:
-            # Prepend sudo to command
-            sudo_command = f"sudo {command}"
-            
-            result = subprocess.run(
-                sudo_command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
-            
-            return (
-                result.returncode == 0,
-                result.stdout,
-                result.stderr,
-                result.returncode,
-            )
-        except subprocess.TimeoutExpired:
-            return False, "", "Command timed out", 124
-        except Exception as e:
-            return False, "", str(e), 1
     
     def check_sudoers_setup(self) -> Tuple[bool, str]:
         """

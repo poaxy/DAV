@@ -13,6 +13,14 @@ env_paths = [
 ]
 for env_path in env_paths:
     if env_path.exists():
+        # Verify permissions before loading sensitive configuration
+        try:
+            from dav.file_security import check_and_warn_permissions
+            check_and_warn_permissions(env_path, "Configuration file")
+        except Exception:
+            # If we can't check permissions, continue anyway (might be import issue)
+            pass
+        
         # Check if file is not empty before loading
         try:
             if env_path.stat().st_size > 0:
@@ -155,4 +163,6 @@ def get_automation_log_retention_days() -> int:
         except ValueError:
             return 30
     return 30
+
+
 

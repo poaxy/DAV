@@ -54,62 +54,6 @@ def strip_json_command_plan(text: str) -> str:
     return cleaned
 
 
-def render_streaming_response(stream: Iterator[str], show_markdown: bool = True) -> str:
-    """Render streaming AI response with markdown formatting."""
-    accumulated = ""
-    buffer = ""
-    
-    # Use Live for real-time updates
-    with Live(console=console, refresh_per_second=10) as live:
-        for chunk in stream:
-            accumulated += chunk
-            buffer += chunk
-            
-            # Try to render complete markdown blocks
-            if show_markdown:
-                try:
-                    # Check if we have a complete code block or paragraph
-                    if "```" in buffer or "\n\n" in buffer:
-                        # Render accumulated content
-                        markdown = Markdown(accumulated)
-                        live.update(markdown)
-                        buffer = ""
-                except Exception:
-                    # If markdown parsing fails, just show text
-                    live.update(Text(accumulated))
-            else:
-                live.update(Text(accumulated))
-    
-    # Filter out JSON command plan before final render
-    display_text = strip_json_command_plan(accumulated)
-    
-    # Final render
-    if show_markdown:
-        try:
-            console.print(Markdown(display_text))
-        except Exception:
-            console.print(display_text)
-    else:
-        console.print(display_text)
-    
-    # Return original (unfiltered) for command extraction
-    return accumulated
-
-
-def render_response(response: str, show_markdown: bool = True) -> None:
-    """Render complete AI response with markdown formatting."""
-    # Filter out JSON command plan before display
-    display_text = strip_json_command_plan(response)
-    
-    if show_markdown:
-        try:
-            console.print(Markdown(display_text))
-        except Exception:
-            console.print(display_text)
-    else:
-        console.print(display_text)
-
-
 def render_error(message: str) -> None:
     """Render error message."""
     console.print(f"[bold red]Error:[/bold red] {message}")
