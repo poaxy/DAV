@@ -138,48 +138,60 @@ def create_context_status_panel(usage) -> Panel:
     return panel
 
 
-def render_context_status(usage, use_panel: bool = True) -> None:
+def render_context_status_line(usage) -> str:
     """
-    Render context usage status - either as panel (Phase 2) or simple text (Phase 1).
+    Create a visually appealing context usage status line.
     
     Args:
         usage: ContextUsage object from context_tracker
-        use_panel: If True, use detailed panel; if False, use simple status bar
+    
+    Returns:
+        Formatted string ready to display
     """
     from dav.context_tracker import ContextUsage
     
     if not isinstance(usage, ContextUsage):
-        return
+        return ""
     
-    if use_panel:
-        # Phase 2: Display as detailed panel
-        panel = create_context_status_panel(usage)
-        # Align to right side for lower-right positioning effect
-        aligned = Align.right(panel)
-        console.print(aligned)
+    # Format token counts (show in K with 1 decimal)
+    used_k = usage.total_used / 1000
+    max_k = usage.max_tokens / 1000
+    
+    # Determine color based on usage percentage
+    if usage.usage_percentage < 50:
+        color = "green"
+        accent_color = "bright_green"
+    elif usage.usage_percentage < 80:
+        color = "yellow"
+        accent_color = "bright_yellow"
     else:
-        # Phase 1: Simple status bar (backward compatibility)
-        used_k = usage.total_used / 1000
-        max_k = usage.max_tokens / 1000
-        remaining_k = usage.remaining / 1000
-        
-        # Determine color based on usage percentage
-        if usage.usage_percentage < 50:
-            color = "green"
-        elif usage.usage_percentage < 80:
-            color = "yellow"
-        else:
-            color = "red"
-        
-        # Build status string
-        status = (
-            f"[{color}]Context: {used_k:.1f}K/{max_k:.1f}K "
-            f"({usage.usage_percentage:.1f}%) | "
-            f"Remaining: {remaining_k:.1f}K[/{color}]"
-        )
-        
-        # Print on same line (overwrite previous status)
-        console.print(status, end="\r")
+        color = "red"
+        accent_color = "bright_red"
+    
+    # Build formatted status line
+    # Format: "context usage 4.2K / 128.0K 3.3% used"
+    status_line = (
+        f"[dim]context usage[/dim] "
+        f"[{accent_color}]{used_k:.1f}K[/{accent_color}] "
+        f"[dim]/[/dim] "
+        f"[{color}]{max_k:.1f}K[/{color}] "
+        f"[{color}]{usage.usage_percentage:.1f}% used[/{color}]"
+    )
+    
+    return status_line
+
+
+def render_context_status(usage, use_panel: bool = False) -> None:
+    """
+    Render context usage status line above prompt.
+    
+    Args:
+        usage: ContextUsage object from context_tracker
+        use_panel: Deprecated, kept for compatibility
+    """
+    status_line = render_context_status_line(usage)
+    if status_line:
+        console.print(status_line)
 
 
 def render_command(command: str) -> None:

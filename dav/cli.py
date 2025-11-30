@@ -779,7 +779,7 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
     # Import here to avoid loading heavy modules for fast commands
     from dav.terminal import render_error, render_streaming_response_with_loading, render_context_status
     from dav.context_tracker import ContextTracker
-    from dav.context import format_context_for_prompt
+    from dav.context import format_context_for_prompt, build_context
     
     # Initialize context tracker
     context_tracker = ContextTracker(backend=ai_backend.backend, model=ai_backend.model)
@@ -787,10 +787,36 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
     console.print("[bold green]Dav Interactive Mode[/bold green]")
     console.print("Type 'exit' or 'quit' to exit, 'clear' to clear session\n")
     
+    # Helper function to display context and prompt
+    def display_prompt_with_context():
+        """Display context status line and prompt."""
+        # Calculate current context usage (no query yet)
+        context_data = build_context(query=None)
+        system_context_str = format_context_for_prompt(context_data)
+        session_history_str = session_manager.get_conversation_context()
+        usage = context_tracker.calculate_usage(
+            system_context=system_context_str,
+            session_history=session_history_str,
+            current_query=""  # No query when showing prompt
+        )
+        render_context_status(usage)
+        return input("dav> ").strip()
+    
+    # Display initial context status
+    initial_context = build_context(query=None)
+    initial_system_context = format_context_for_prompt(initial_context)
+    initial_history = session_manager.get_conversation_context()
+    initial_usage = context_tracker.calculate_usage(
+        system_context=initial_system_context,
+        session_history=initial_history,
+        current_query=""
+    )
+    render_context_status(initial_usage)
+    
     while True:
         try:
-            # Get user input
-            query = input("dav> ").strip()
+            # Get user input with context display
+            query = display_prompt_with_context()
             
             if not query:
                 continue
@@ -801,8 +827,6 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
             if query.lower() == "clear":
                 session_manager.clear_session()
                 console.print("Session cleared.\n")
-                # Clear status line
-                console.print()
                 continue
             
             # Validate and sanitize user input in interactive mode
@@ -838,19 +862,6 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                 query, session_manager, execute_mode=execute, interactive_mode=True
             )
             
-            # Calculate and display context usage
-            # Extract system context (without session history, which is separate)
-            system_context_str = format_context_for_prompt(context_data)
-            session_history_str = session_manager.get_conversation_context()
-            usage = context_tracker.calculate_usage(
-                system_context=system_context_str,
-                session_history=session_history_str,
-                current_query=query
-            )
-            # Use panel display (Phase 2)
-            render_context_status(usage, use_panel=True)
-            console.print()  # New line after panel
-            
             backend_name = ai_backend.backend.title()
             console.print()
             response = render_streaming_response_with_loading(
@@ -871,18 +882,8 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                 is_interactive=True,
             )
             
-            # Update context status after response is added to session
-            # Recalculate to show updated usage
-            system_context_str = format_context_for_prompt(context_data)
-            session_history_str = session_manager.get_conversation_context()
-            updated_usage = context_tracker.calculate_usage(
-                system_context=system_context_str,
-                session_history=session_history_str,
-                current_query=""  # No current query after response
-            )
-            # Show updated status
-            render_context_status(updated_usage, use_panel=True)
-            console.print()  # New line after panel
+            # Context status will be shown again before next prompt
+            console.print()
         
         except KeyboardInterrupt:
             console.print("\n\n[bold yellow]Interrupted. Type 'exit' to quit.[/bold yellow]\n")
