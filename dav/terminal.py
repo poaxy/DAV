@@ -7,14 +7,12 @@ import time
 from typing import Any, ContextManager, Iterator, Optional, Tuple
 
 from rich.console import Console
-from rich.layout import Layout
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.status import Status
 from rich.syntax import Syntax
 from rich.text import Text
-from rich.align import Align
 
 console = Console()
 
@@ -71,73 +69,6 @@ def render_info(message: str) -> None:
     console.print(f"[bold blue]Info:[/bold blue] {message}")
 
 
-def create_context_status_panel(usage) -> Panel:
-    """
-    Create a detailed context status panel for display in lower right corner.
-    
-    Args:
-        usage: ContextUsage object from context_tracker
-    
-    Returns:
-        Rich Panel with context information
-    """
-    from dav.context_tracker import ContextUsage
-    
-    if not isinstance(usage, ContextUsage):
-        return Panel("", title="Context", border_style="dim")
-    
-    # Format token counts (show in K for readability, with 1 decimal)
-    used_k = usage.total_used / 1000
-    max_k = usage.max_tokens / 1000
-    remaining_k = usage.remaining / 1000
-    system_k = usage.system_prompt / 1000
-    context_k = usage.system_context / 1000
-    history_k = usage.session_history / 1000
-    query_k = usage.current_query / 1000
-    
-    # Determine color based on usage percentage
-    if usage.usage_percentage < 50:
-        color = "green"
-        border_color = "green"
-    elif usage.usage_percentage < 80:
-        color = "yellow"
-        border_color = "yellow"
-    else:
-        color = "red"
-        border_color = "red"
-    
-    # Build detailed status text with better formatting
-    lines = []
-    # Main usage line with progress indicator
-    lines.append(f"[bold {color}]{used_k:.1f}K / {max_k:.1f}K[/bold {color}]")
-    lines.append(f"[{color}]{usage.usage_percentage:.1f}% used[/{color}]")
-    lines.append("")
-    
-    # Breakdown section
-    lines.append("[dim]Breakdown:[/dim]")
-    lines.append(f"  [dim]System:[/dim] {system_k:.1f}K")
-    lines.append(f"  [dim]Context:[/dim] {context_k:.1f}K")
-    lines.append(f"  [dim]History:[/dim] {history_k:.1f}K")
-    lines.append(f"  [dim]Query:[/dim] {query_k:.1f}K")
-    lines.append("")
-    
-    # Remaining tokens (highlighted)
-    lines.append(f"[bold {color}]Remaining: {remaining_k:.1f}K[/bold {color}]")
-    
-    content = "\n".join(lines)
-    
-    # Create panel with appropriate styling
-    panel = Panel(
-        content,
-        title=f"[bold]Context Usage[/bold]",
-        border_style=border_color,
-        padding=(1, 2),
-        width=38,  # Fixed width for consistent display
-    )
-    
-    return panel
-
-
 def render_context_status_line(usage) -> str:
     """
     Create a visually appealing context usage status line.
@@ -181,13 +112,12 @@ def render_context_status_line(usage) -> str:
     return status_line
 
 
-def render_context_status(usage, use_panel: bool = False) -> None:
+def render_context_status(usage) -> None:
     """
     Render context usage status line above prompt.
     
     Args:
         usage: ContextUsage object from context_tracker
-        use_panel: Deprecated, kept for compatibility
     """
     status_line = render_context_status_line(usage)
     if status_line:

@@ -777,7 +777,7 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                         session_manager: SessionManager, execute: bool, auto_confirm: bool):
     """Run interactive mode for multi-turn conversations."""
     # Import here to avoid loading heavy modules for fast commands
-    from dav.terminal import render_error, render_streaming_response_with_loading, render_context_status
+    from dav.terminal import render_error, render_streaming_response_with_loading, render_context_status, render_warning
     from dav.context_tracker import ContextTracker
     from dav.context import format_context_for_prompt, build_context
     
@@ -801,17 +801,6 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
         )
         render_context_status(usage)
         return input("dav> ").strip()
-    
-    # Display initial context status
-    initial_context = build_context(query=None)
-    initial_system_context = format_context_for_prompt(initial_context)
-    initial_history = session_manager.get_conversation_context()
-    initial_usage = context_tracker.calculate_usage(
-        system_context=initial_system_context,
-        session_history=initial_history,
-        current_query=""
-    )
-    render_context_status(initial_usage)
     
     while True:
         try:
