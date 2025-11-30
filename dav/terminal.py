@@ -69,6 +69,42 @@ def render_info(message: str) -> None:
     console.print(f"[bold blue]Info:[/bold blue] {message}")
 
 
+def render_context_status(usage) -> None:
+    """
+    Render context usage status bar.
+    
+    Args:
+        usage: ContextUsage object from context_tracker
+    """
+    from dav.context_tracker import ContextUsage
+    
+    if not isinstance(usage, ContextUsage):
+        return
+    
+    # Format token counts (show in K for readability)
+    used_k = usage.total_used / 1000
+    max_k = usage.max_tokens / 1000
+    remaining_k = usage.remaining / 1000
+    
+    # Determine color based on usage percentage
+    if usage.usage_percentage < 50:
+        color = "green"
+    elif usage.usage_percentage < 80:
+        color = "yellow"
+    else:
+        color = "red"
+    
+    # Build status string
+    status = (
+        f"[{color}]Context: {used_k:.1f}K/{max_k:.1f}K "
+        f"({usage.usage_percentage:.1f}%) | "
+        f"Remaining: {remaining_k:.1f}K[/{color}]"
+    )
+    
+    # Print on same line (overwrite previous status)
+    console.print(status, end="\r")
+
+
 def render_command(command: str) -> None:
     """Render command in a highlighted code block."""
     syntax = Syntax(command, "bash", theme="monokai", line_numbers=False)

@@ -777,7 +777,12 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                         session_manager: SessionManager, execute: bool, auto_confirm: bool):
     """Run interactive mode for multi-turn conversations."""
     # Import here to avoid loading heavy modules for fast commands
-    from dav.terminal import render_error, render_streaming_response_with_loading
+    from dav.terminal import render_error, render_streaming_response_with_loading, render_context_status
+    from dav.context_tracker import ContextTracker
+    from dav.context import format_context_for_prompt
+    
+    # Initialize context tracker
+    context_tracker = ContextTracker(backend=ai_backend.backend, model=ai_backend.model)
     
     console.print("[bold green]Dav Interactive Mode[/bold green]")
     console.print("Type 'exit' or 'quit' to exit, 'clear' to clear session\n")
@@ -796,6 +801,8 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
             if query.lower() == "clear":
                 session_manager.clear_session()
                 console.print("Session cleared.\n")
+                # Clear status line
+                console.print()
                 continue
             
             # Validate and sanitize user input in interactive mode
@@ -831,12 +838,29 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                 query, session_manager, execute_mode=execute, interactive_mode=True
             )
             
+            # Calculate and display context usage
+            # Extract system context (without session history, which is separate)
+            system_context_str = format_context_for_prompt(context_data)
+            session_history_str = session_manager.get_conversation_context()
+            usage = context_tracker.calculate_usage(
+                system_context=system_context_str,
+                session_history=session_history_str,
+                current_query=query
+            )
+            render_context_status(usage)
+            console.print()  # New line after status
+            
             backend_name = ai_backend.backend.title()
             console.print()
             response = render_streaming_response_with_loading(
                 ai_backend.stream_response(full_prompt, system_prompt=system_prompt),
                 loading_message=f"Generating response with {backend_name}...",
             )
+            console.print()
+            
+            # Update context status after response (response is not counted in input, but we show updated status)
+            # Recalculate with the response added to history (it will be added by _process_response)
+            # For now, just show a newline to clear the status area
             console.print()
             
             _process_response(
