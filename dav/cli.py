@@ -789,7 +789,7 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
     
     # Helper function to display context and prompt
     def display_prompt_with_context():
-        """Display context status line and prompt."""
+        """Display context status panel and prompt."""
         # Calculate current context usage (no query yet)
         context_data = build_context(query=None)
         system_context_str = format_context_for_prompt(context_data)
@@ -799,7 +799,8 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
             session_history=session_history_str,
             current_query=""  # No query when showing prompt
         )
-        render_context_status(usage)
+        # Pass model and backend for panel display
+        render_context_status(usage, model=ai_backend.model, backend=ai_backend.backend)
         return input("dav> ").strip()
     
     while True:

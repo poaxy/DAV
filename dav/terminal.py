@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.box import ROUNDED
 from rich.status import Status
 from rich.syntax import Syntax
 from rich.text import Text
@@ -69,59 +70,158 @@ def render_info(message: str) -> None:
     console.print(f"[bold blue]Info:[/bold blue] {message}")
 
 
-def render_context_status_line(usage) -> str:
+def _get_shortened_model_name(model: str, backend: str) -> str:
     """
-    Create a visually appealing context usage status line.
+    Get shortened model name for display.
+    
+    Args:
+        model: Full model name
+        backend: Backend name (openai or anthropic)
+    
+    Returns:
+        Shortened model name
+    """
+    model_lower = model.lower()
+    
+    if backend == "openai":
+        if "gpt-4" in model_lower:
+            if "turbo" in model_lower:
+                return "gpt-4-turbo"
+            return "gpt-4"
+        elif "gpt-3.5" in model_lower:
+            return "gpt-3.5"
+        return "gpt"
+    elif backend == "anthropic":
+        if "claude-3.5" in model_lower:
+            return "claude-3.5"
+        elif "claude-3" in model_lower:
+            return "claude-3"
+        elif "claude" in model_lower:
+            return "claude"
+    
+    # Fallback: return first 10 chars
+    return model[:10] if len(model) > 10 else model
+
+
+def _get_rate_limit_info() -> tuple[str, str, int, int]:
+    """
+    Get rate limiting information for display.
+    
+    Returns:
+        Tuple of (formatted_string, color, remaining, total)
+    """
+    from dav.rate_limiter import api_rate_limiter
+    
+    # Get remaining tokens and capacity
+    remaining_tokens = api_rate_limiter.get_remaining_tokens()
+    capacity = api_rate_limiter.capacity
+    
+    # The rate limiter uses tokens, where each request costs 1 token
+    # So remaining tokens = remaining requests
+    remaining_requests = max(0, int(remaining_tokens))
+    total_requests = int(capacity)
+    
+    # Determine color based on remaining percentage
+    remaining_pct = (remaining_requests / total_requests * 100) if total_requests > 0 else 100
+    
+    if remaining_pct > 70:
+        color = "green"
+    elif remaining_pct > 30:
+        color = "yellow"
+    else:
+        color = "red"
+    
+    formatted = f"rate: {remaining_requests}/{total_requests}"
+    
+    return formatted, color, remaining_requests, total_requests
+
+
+def render_context_status_panel(usage, model: str, backend: str) -> None:
+    """
+    Render context usage status in a colored border panel.
     
     Args:
         usage: ContextUsage object from context_tracker
-    
-    Returns:
-        Formatted string ready to display
+        model: Model name
+        backend: Backend name
     """
     from dav.context_tracker import ContextUsage
     
     if not isinstance(usage, ContextUsage):
-        return ""
+        return
     
     # Format token counts (show in K with 1 decimal)
     used_k = usage.total_used / 1000
     max_k = usage.max_tokens / 1000
     
-    # Determine color based on usage percentage
+    # Determine color based on usage percentage (for border)
     if usage.usage_percentage < 50:
-        color = "green"
+        border_color = "green"
+        context_color = "green"
         accent_color = "bright_green"
     elif usage.usage_percentage < 80:
-        color = "yellow"
+        border_color = "yellow"
+        context_color = "yellow"
         accent_color = "bright_yellow"
     else:
-        color = "red"
+        border_color = "red"
+        context_color = "red"
         accent_color = "bright_red"
     
-    # Build formatted status line
-    # Format: "context usage 4.2K / 128.0K 3.3% used"
-    status_line = (
-        f"[dim]context usage[/dim] "
-        f"[{accent_color}]{used_k:.1f}K[/{accent_color}] "
-        f"[dim]/[/dim] "
-        f"[{color}]{max_k:.1f}K[/{color}] "
-        f"[{color}]{usage.usage_percentage:.1f}% used[/{color}]"
+    # Get model info
+    model_short = _get_shortened_model_name(model, backend)
+    
+    # Get rate limit info
+    rate_text, rate_color, rate_remaining, rate_total = _get_rate_limit_info()
+    
+    # Build panel content
+    # Format: [green]context: 4.2K/128.0K (3.3%)[/green] | [cyan]model: gpt-4[/cyan] | [yellow]rate: 7/10[/yellow]
+    content = (
+        f"[{context_color}]context: {used_k:.1f}K/{max_k:.1f}K ({usage.usage_percentage:.1f}%)[/{context_color}] "
+        f"[dim]│[/dim] "
+        f"[cyan]model: {model_short}[/cyan] "
+        f"[dim]│[/dim] "
+        f"[{rate_color}]{rate_text}[/{rate_color}]"
     )
     
-    return status_line
+    # Create panel with colored border
+    panel = Panel(
+        content,
+        border_style=border_color,
+        box=ROUNDED,
+        padding=(0, 1),
+    )
+    
+    console.print(panel)
 
 
-def render_context_status(usage) -> None:
+def render_context_status(usage, model: Optional[str] = None, backend: Optional[str] = None) -> None:
     """
-    Render context usage status line above prompt.
+    Render context usage status in a colored border panel.
     
     Args:
         usage: ContextUsage object from context_tracker
+        model: Model name (optional, for panel display)
+        backend: Backend name (optional, for panel display)
     """
-    status_line = render_context_status_line(usage)
-    if status_line:
-        console.print(status_line)
+    if model and backend:
+        render_context_status_panel(usage, model, backend)
+    else:
+        # Fallback to simple line if model/backend not provided
+        from dav.context_tracker import ContextUsage
+        if isinstance(usage, ContextUsage):
+            used_k = usage.total_used / 1000
+            max_k = usage.max_tokens / 1000
+            if usage.usage_percentage < 50:
+                color = "green"
+            elif usage.usage_percentage < 80:
+                color = "yellow"
+            else:
+                color = "red"
+            status_line = (
+                f"[{color}]context: {used_k:.1f}K/{max_k:.1f}K ({usage.usage_percentage:.1f}%)[/{color}]"
+            )
+            console.print(status_line)
 
 
 def render_command(command: str) -> None:
