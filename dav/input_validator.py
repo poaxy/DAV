@@ -205,3 +205,4 @@ def validate_query_length(query: str) -> Tuple[bool, Optional[str]]:
         return False, f"Query too long (max {MAX_QUERY_LENGTH} characters)"
     return True, None
 
+

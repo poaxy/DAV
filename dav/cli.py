@@ -204,8 +204,9 @@ def main(
     
     # Detect automation mode early (before reading stdin)
     is_automation_mode = automation
-    if not is_automation_mode and not sys.stdin.isatty():
-        # Auto-detect non-TTY environment
+    if not is_automation_mode and not sys.stdin.isatty() and not sys.stdout.isatty():
+        # Auto-detect non-TTY environment (both stdin and stdout are not TTY)
+        # This distinguishes true automation (cron/scripts) from piped input (user present)
         is_automation_mode = True
         console.print("[yellow]Auto-detected automation mode (non-TTY)[/yellow]")
     
