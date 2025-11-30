@@ -847,8 +847,9 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                 session_history=session_history_str,
                 current_query=query
             )
-            render_context_status(usage)
-            console.print()  # New line after status
+            # Use panel display (Phase 2)
+            render_context_status(usage, use_panel=True)
+            console.print()  # New line after panel
             
             backend_name = ai_backend.backend.title()
             console.print()
@@ -856,11 +857,6 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                 ai_backend.stream_response(full_prompt, system_prompt=system_prompt),
                 loading_message=f"Generating response with {backend_name}...",
             )
-            console.print()
-            
-            # Update context status after response (response is not counted in input, but we show updated status)
-            # Recalculate with the response added to history (it will be added by _process_response)
-            # For now, just show a newline to clear the status area
             console.print()
             
             _process_response(
@@ -874,6 +870,19 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                 context_data,
                 is_interactive=True,
             )
+            
+            # Update context status after response is added to session
+            # Recalculate to show updated usage
+            system_context_str = format_context_for_prompt(context_data)
+            session_history_str = session_manager.get_conversation_context()
+            updated_usage = context_tracker.calculate_usage(
+                system_context=system_context_str,
+                session_history=session_history_str,
+                current_query=""  # No current query after response
+            )
+            # Show updated status
+            render_context_status(updated_usage, use_panel=True)
+            console.print()  # New line after panel
         
         except KeyboardInterrupt:
             console.print("\n\n[bold yellow]Interrupted. Type 'exit' to quit.[/bold yellow]\n")

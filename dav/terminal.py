@@ -7,12 +7,14 @@ import time
 from typing import Any, ContextManager, Iterator, Optional, Tuple
 
 from rich.console import Console
+from rich.layout import Layout
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.status import Status
 from rich.syntax import Syntax
 from rich.text import Text
+from rich.align import Align
 
 console = Console()
 
@@ -69,40 +71,115 @@ def render_info(message: str) -> None:
     console.print(f"[bold blue]Info:[/bold blue] {message}")
 
 
-def render_context_status(usage) -> None:
+def create_context_status_panel(usage) -> Panel:
     """
-    Render context usage status bar.
+    Create a detailed context status panel for display in lower right corner.
     
     Args:
         usage: ContextUsage object from context_tracker
+    
+    Returns:
+        Rich Panel with context information
+    """
+    from dav.context_tracker import ContextUsage
+    
+    if not isinstance(usage, ContextUsage):
+        return Panel("", title="Context", border_style="dim")
+    
+    # Format token counts (show in K for readability, with 1 decimal)
+    used_k = usage.total_used / 1000
+    max_k = usage.max_tokens / 1000
+    remaining_k = usage.remaining / 1000
+    system_k = usage.system_prompt / 1000
+    context_k = usage.system_context / 1000
+    history_k = usage.session_history / 1000
+    query_k = usage.current_query / 1000
+    
+    # Determine color based on usage percentage
+    if usage.usage_percentage < 50:
+        color = "green"
+        border_color = "green"
+    elif usage.usage_percentage < 80:
+        color = "yellow"
+        border_color = "yellow"
+    else:
+        color = "red"
+        border_color = "red"
+    
+    # Build detailed status text with better formatting
+    lines = []
+    # Main usage line with progress indicator
+    lines.append(f"[bold {color}]{used_k:.1f}K / {max_k:.1f}K[/bold {color}]")
+    lines.append(f"[{color}]{usage.usage_percentage:.1f}% used[/{color}]")
+    lines.append("")
+    
+    # Breakdown section
+    lines.append("[dim]Breakdown:[/dim]")
+    lines.append(f"  [dim]System:[/dim] {system_k:.1f}K")
+    lines.append(f"  [dim]Context:[/dim] {context_k:.1f}K")
+    lines.append(f"  [dim]History:[/dim] {history_k:.1f}K")
+    lines.append(f"  [dim]Query:[/dim] {query_k:.1f}K")
+    lines.append("")
+    
+    # Remaining tokens (highlighted)
+    lines.append(f"[bold {color}]Remaining: {remaining_k:.1f}K[/bold {color}]")
+    
+    content = "\n".join(lines)
+    
+    # Create panel with appropriate styling
+    panel = Panel(
+        content,
+        title=f"[bold]Context Usage[/bold]",
+        border_style=border_color,
+        padding=(1, 2),
+        width=38,  # Fixed width for consistent display
+    )
+    
+    return panel
+
+
+def render_context_status(usage, use_panel: bool = True) -> None:
+    """
+    Render context usage status - either as panel (Phase 2) or simple text (Phase 1).
+    
+    Args:
+        usage: ContextUsage object from context_tracker
+        use_panel: If True, use detailed panel; if False, use simple status bar
     """
     from dav.context_tracker import ContextUsage
     
     if not isinstance(usage, ContextUsage):
         return
     
-    # Format token counts (show in K for readability)
-    used_k = usage.total_used / 1000
-    max_k = usage.max_tokens / 1000
-    remaining_k = usage.remaining / 1000
-    
-    # Determine color based on usage percentage
-    if usage.usage_percentage < 50:
-        color = "green"
-    elif usage.usage_percentage < 80:
-        color = "yellow"
+    if use_panel:
+        # Phase 2: Display as detailed panel
+        panel = create_context_status_panel(usage)
+        # Align to right side for lower-right positioning effect
+        aligned = Align.right(panel)
+        console.print(aligned)
     else:
-        color = "red"
-    
-    # Build status string
-    status = (
-        f"[{color}]Context: {used_k:.1f}K/{max_k:.1f}K "
-        f"({usage.usage_percentage:.1f}%) | "
-        f"Remaining: {remaining_k:.1f}K[/{color}]"
-    )
-    
-    # Print on same line (overwrite previous status)
-    console.print(status, end="\r")
+        # Phase 1: Simple status bar (backward compatibility)
+        used_k = usage.total_used / 1000
+        max_k = usage.max_tokens / 1000
+        remaining_k = usage.remaining / 1000
+        
+        # Determine color based on usage percentage
+        if usage.usage_percentage < 50:
+            color = "green"
+        elif usage.usage_percentage < 80:
+            color = "yellow"
+        else:
+            color = "red"
+        
+        # Build status string
+        status = (
+            f"[{color}]Context: {used_k:.1f}K/{max_k:.1f}K "
+            f"({usage.usage_percentage:.1f}%) | "
+            f"Remaining: {remaining_k:.1f}K[/{color}]"
+        )
+        
+        # Print on same line (overwrite previous status)
+        console.print(status, end="\r")
 
 
 def render_command(command: str) -> None:
