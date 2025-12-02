@@ -128,6 +128,32 @@ class RateLimiter:
         self._refill_tokens(user_id)
         return self._buckets[user_id].tokens
     
+    def get_time_until_next_token(self, user_id: str = "default") -> float:
+        """
+        Get time in seconds until next token will be available.
+        
+        Args:
+            user_id: User identifier
+        
+        Returns:
+            Seconds until next token (0 if tokens already available)
+        """
+        self._refill_tokens(user_id)
+        state = self._buckets[user_id]
+        
+        # If we already have tokens, return 0
+        if state.tokens >= 1.0:
+            return 0.0
+        
+        # Calculate how much time needed to get 1 token
+        tokens_needed = 1.0 - state.tokens
+        if tokens_needed <= 0:
+            return 0.0
+        
+        # Time = tokens_needed / refill_rate
+        time_needed = tokens_needed / self.refill_rate
+        return time_needed
+    
     def get_request_count(self, user_id: str = "default") -> int:
         """Get number of requests in current window."""
         self._cleanup_old_requests(user_id)

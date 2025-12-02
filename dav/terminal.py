@@ -131,7 +131,18 @@ def _get_rate_limit_info() -> tuple[str, str, int, int]:
     else:
         color = "red"
     
-    formatted = f"rate: {remaining_requests}/{total_requests}"
+    # Format rate limit display
+    if remaining_requests == 0:
+        # Show time until next token when at 0
+        time_until = api_rate_limiter.get_time_until_next_token()
+        if time_until > 0:
+            # Round to nearest second
+            seconds = int(time_until) + (1 if time_until % 1 >= 0.5 else 0)
+            formatted = f"rate: {remaining_requests}/{total_requests} ({seconds}s)"
+        else:
+            formatted = f"rate: {remaining_requests}/{total_requests}"
+    else:
+        formatted = f"rate: {remaining_requests}/{total_requests}"
     
     return formatted, color, remaining_requests, total_requests
 

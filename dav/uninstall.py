@@ -224,6 +224,48 @@ def uninstall_with_pip_user() -> bool:
         return False
 
 
+def remove_sudoers_file() -> Tuple[bool, str]:
+    """
+    Remove the Dav sudoers configuration file.
+    
+    Returns:
+        Tuple of (success, message)
+    """
+    sudoers_file = "/etc/sudoers.d/dav-automation"
+    
+    try:
+        # Check if file exists
+        check_result = subprocess.run(
+            ["sudo", "test", "-f", sudoers_file],
+            capture_output=True,
+            timeout=5
+        )
+        
+        if check_result.returncode != 0:
+            # File doesn't exist, nothing to remove
+            return True, "Sudoers file not found (already removed or never created)"
+        
+        # Remove the file
+        remove_result = subprocess.run(
+            ["sudo", "rm", "-f", sudoers_file],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if remove_result.returncode == 0:
+            return True, "Sudoers file removed successfully"
+        else:
+            return False, f"Failed to remove sudoers file: {remove_result.stderr}"
+    
+    except subprocess.TimeoutExpired:
+        return False, "Timeout while removing sudoers file"
+    except FileNotFoundError:
+        return False, "sudo command not found"
+    except Exception as e:
+        return False, f"Error removing sudoers file: {str(e)}"
+
+
 def uninstall_with_venv() -> bool:
     """Uninstall Dav from current virtual environment."""
     try:
@@ -318,11 +360,29 @@ def run_uninstall(confirm: bool = True) -> None:
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         pass
     
+    # Check for sudoers file
+    has_sudoers_file = False
+    sudoers_file_path = "/etc/sudoers.d/dav-automation"
+    try:
+        # Check if file exists (requires sudo, but we can check if we can read it)
+        check_result = subprocess.run(
+            ["sudo", "test", "-f", sudoers_file_path],
+            capture_output=True,
+            timeout=5
+        )
+        has_sudoers_file = check_result.returncode == 0
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired, PermissionError):
+        # If we can't check (no sudo access), assume it might exist
+        # We'll try to remove it anyway if user confirms
+        pass
+    
     # Step 3: Confirm
     if confirm:
         console.print("\n[bold red]Warning:[/bold red] This will permanently:")
         console.print("  • Delete all Dav data files and configuration")
         console.print("  • Delete automation logs")
+        if has_sudoers_file:
+            console.print("  • Remove sudoers configuration file (/etc/sudoers.d/dav-automation)")
         console.print("  • Uninstall the dav-ai package")
         console.print("  • Remove the 'dav' command from your system\n")
         
@@ -336,19 +396,35 @@ def run_uninstall(confirm: bool = True) -> None:
             console.print("  Cron jobs will NOT be removed automatically.")
             console.print("  To remove them: [cyan]crontab -e[/cyan] (then delete the lines)\n")
         
+        if has_sudoers_file:
+            console.print("[yellow]⚠ Note:[/yellow] Sudoers configuration file detected at [cyan]/etc/sudoers.d/dav-automation[/cyan]")
+            console.print("  This file will be removed during uninstall (requires sudo).\n")
+        
         if not Confirm.ask("Continue with complete uninstall?", default=False):
             console.print("[yellow]Uninstall cancelled.[/yellow]")
             return
     
-    # Step 4: Remove data files first (while package is still installed)
+    # Step 3: Remove data files first (while package is still installed)
     console.print("\n[bold]Step 3:[/bold] Removing data files...")
     data_removed = remove_dav_files(confirm=False)  # Already confirmed above
     
     if not data_removed:
         console.print("[yellow]⚠ Some data files could not be removed, but continuing with package uninstall...[/yellow]")
     
+    # Step 4: Remove sudoers file if it exists (always try, even if detection failed)
+    console.print("\n[bold]Step 4:[/bold] Removing sudoers configuration file (if present)...")
+    sudoers_success, sudoers_message = remove_sudoers_file()
+    if sudoers_success:
+        if "not found" in sudoers_message.lower():
+            console.print(f"[dim]{sudoers_message}[/dim]")
+        else:
+            console.print(f"[green]✓ {sudoers_message}[/green]")
+    else:
+        console.print(f"[yellow]⚠ {sudoers_message}[/yellow]")
+        console.print("[yellow]You may need to remove it manually: sudo rm /etc/sudoers.d/dav-automation[/yellow]")
+    
     # Step 5: Uninstall package
-    console.print(f"\n[bold]Step 4:[/bold] Uninstalling dav-ai package (method: {method})...")
+    console.print(f"\n[bold]Step 5:[/bold] Uninstalling dav-ai package (method: {method})...")
     
     success = False
     if method == 'pipx':
@@ -362,7 +438,10 @@ def run_uninstall(confirm: bool = True) -> None:
     console.print("\n" + "="*50)
     if success and data_removed:
         console.print("[bold green]✓ Complete uninstall successful![/bold green]")
-        console.print("[green]All Dav files, data, and the package have been removed.[/green]\n")
+        if has_sudoers_file:
+            console.print("[green]All Dav files, data, sudoers configuration, and the package have been removed.[/green]\n")
+        else:
+            console.print("[green]All Dav files, data, and the package have been removed.[/green]\n")
     elif success:
         console.print("[bold yellow]⚠ Package uninstalled, but some data files may remain.[/bold yellow]")
         console.print("[yellow]You may need to manually remove files from ~/.dav[/yellow]\n")

@@ -890,7 +890,7 @@ def _handle_schedule_command(schedule_input: str) -> None:
     from dav.ai_backend import AIBackend, get_system_prompt
     from dav.cron_helper import add_cron_job, parse_schedule_to_cron
     from dav.context import build_context, format_context_for_prompt
-    from dav.terminal import render_error
+    from dav.terminal import render_error, render_warning
     
     console.print("[cyan]Parsing schedule and setting up cron job...[/cyan]\n")
     
@@ -988,6 +988,85 @@ Return ONLY valid JSON with "task" and "schedule" fields."""
                     render_error("Could not parse schedule format.")
                     sys.exit(1)
         
+        # Check if NOPASSWD is configured before scheduling
+        # This is important because scheduled tasks in automation mode will fail
+        # if they require sudo and password-less sudo is not available
+        from dav.sudo_handler import SudoHandler
+        from rich.prompt import Confirm
+        
+        sudo_handler = SudoHandler()
+        is_configured, status_msg = sudo_handler.check_sudoers_setup()
+        
+        # Check if task might require sudo (common keywords)
+        task_lower = task.lower()
+        sudo_keywords = [
+            "update", "upgrade", "install", "remove", "system", "service",
+            "restart", "start", "stop", "enable", "disable", "configure",
+            "maintenance", "security", "package", "apt", "yum", "dnf",
+            "systemctl", "journalctl", "log", "firewall", "ufw"
+        ]
+        might_need_sudo = any(keyword in task_lower for keyword in sudo_keywords)
+        
+        if not is_configured and might_need_sudo:
+            console.print()
+            render_warning("Password-less sudo (NOPASSWD) is not configured.")
+            console.print(f"[yellow]⚠ {status_msg}[/yellow]")
+            console.print()
+            console.print("[bold]Important:[/bold] Scheduled tasks that require sudo will fail silently")
+            console.print("if password-less sudo is not configured.")
+            console.print()
+            console.print("[bold]Would you like to configure password-less sudo now?[/bold]")
+            console.print("[dim]This will create /etc/sudoers.d/dav-automation with appropriate permissions.[/dim]")
+            console.print()
+            
+            if Confirm.ask("Configure sudoers NOPASSWD automatically?", default=True):
+                console.print()
+                console.print("[cyan]Configuring sudoers...[/cyan]")
+                console.print("[dim]You may be prompted for your sudo password.[/dim]")
+                console.print()
+                
+                # Ask for security preference
+                use_specific = Confirm.ask(
+                    "Use specific commands only (more secure)?",
+                    default=True
+                )
+                
+                success, message = sudo_handler.configure_sudoers(specific_commands=use_specific)
+                
+                if success:
+                    console.print()
+                    console.print(f"[green]✓ {message}[/green]")
+                    console.print()
+                else:
+                    console.print()
+                    console.print(f"[red]✗ {message}[/red]")
+                    console.print()
+                    console.print("[yellow]You can still schedule the task, but it may fail if sudo is required.[/yellow]")
+                    console.print(sudo_handler.get_sudoers_instructions())
+                    console.print()
+                    
+                    if not Confirm.ask("Continue scheduling anyway?", default=True):
+                        console.print("[yellow]Scheduling cancelled.[/yellow]")
+                        sys.exit(0)
+            else:
+                console.print()
+                console.print("[yellow]Skipping automatic configuration.[/yellow]")
+                console.print(sudo_handler.get_sudoers_instructions())
+                console.print()
+                console.print("[yellow]Warning: The scheduled task may fail if it requires sudo.[/yellow]")
+                console.print()
+                
+                if not Confirm.ask("Continue scheduling anyway?", default=True):
+                    console.print("[yellow]Scheduling cancelled.[/yellow]")
+                    sys.exit(0)
+        elif not is_configured:
+            # NOPASSWD not configured but task probably doesn't need sudo
+            # Just show a brief warning
+            console.print()
+            render_warning("Password-less sudo is not configured.")
+            console.print("[dim]If this task requires sudo, it will fail. Run 'dav --cron-setup' to configure.[/dim]")
+            console.print()
+        
         # Add cron job
         success, message = add_cron_job(cron_schedule, task, auto_confirm=True)
         
@@ -995,6 +1074,11 @@ Return ONLY valid JSON with "task" and "schedule" fields."""
             console.print(f"[green]✓ {message}[/green]")
             console.print(f"\n[cyan]Cron job added successfully![/cyan]")
             console.print(f"[dim]View with: crontab -l[/dim]")
+            
+            # Final reminder if NOPASSWD not configured and task might need sudo
+            if not is_configured and might_need_sudo:
+                console.print()
+                render_warning("Remember: Configure password-less sudo with 'dav --cron-setup' if this task requires sudo.")
         else:
             render_error(message)
             sys.exit(1)
