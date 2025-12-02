@@ -1024,7 +1024,7 @@ def _handle_schedule_command(schedule_input: str) -> None:
         console.print()
     
     # Add cron job
-    success, message = add_cron_job(cron_schedule, task, auto_confirm=True)
+    success, message, match_type, existing_entry = add_cron_job(cron_schedule, task, auto_confirm=True)
     
     if success:
         console.print(f"[green]✓ {message}[/green]")
@@ -1036,8 +1036,114 @@ def _handle_schedule_command(schedule_input: str) -> None:
             console.print()
             render_warning("Remember: Configure password-less sudo with 'dav --cron-setup' if this task requires sudo.")
     else:
-        render_error(message)
-        sys.exit(1)
+        # Handle different duplicate match types
+        if match_type == "exact" or match_type == "task_and_schedule":
+            # Exact or task+schedule duplicate - just inform user
+            render_error(message)
+            if existing_entry:
+                console.print(f"\n[dim]Existing entry: {existing_entry}[/dim]")
+            console.print("\n[yellow]Tip:[/yellow] Use 'crontab -e' to manually edit or remove the existing job.")
+            sys.exit(1)
+        
+        elif match_type == "task_only":
+            # Task exists with different schedule - prompt user for action
+            from dav.cron_helper import find_similar_cron_jobs, replace_cron_job
+            
+            console.print()
+            render_warning("A similar task is already scheduled with a different time.")
+            console.print()
+            
+            # Find all similar jobs
+            similar_jobs = find_similar_cron_jobs(task, cron_schedule)
+            
+            if similar_jobs:
+                console.print("[bold]Existing scheduled jobs:[/bold]")
+                for idx, (existing_schedule, existing_entry_full) in enumerate(similar_jobs, 1):
+                    console.print(f"  {idx}. Schedule: [cyan]{existing_schedule}[/cyan]")
+                    console.print(f"     Entry: [dim]{existing_entry_full}[/dim]")
+                console.print()
+            
+            console.print(f"[bold]New schedule:[/bold] [cyan]{cron_schedule}[/cyan]")
+            console.print(f"[bold]Task:[/bold] {task}")
+            console.print()
+            console.print("[bold]Choose an action:[/bold]")
+            console.print("  1. Skip (keep existing schedule)")
+            console.print("  2. Replace (update to new schedule)")
+            console.print("  3. Add anyway (both will run)")
+            console.print()
+            
+            choice = None
+            while choice not in ["1", "2", "3"]:
+                try:
+                    choice = input("Enter choice (1-3): ").strip()
+                    if choice not in ["1", "2", "3"]:
+                        console.print("[red]Invalid choice. Please enter 1, 2, or 3.[/red]")
+                except (EOFError, KeyboardInterrupt):
+                    console.print("\n[yellow]Cancelled.[/yellow]")
+                    sys.exit(0)
+            
+            if choice == "1":
+                # Skip
+                console.print("\n[yellow]Skipping. Existing schedule kept.[/yellow]")
+                sys.exit(0)
+            
+            elif choice == "2":
+                # Replace
+                if not similar_jobs:
+                    # Fallback to existing_entry if similar_jobs is empty
+                    if existing_entry:
+                        old_entry = existing_entry
+                    else:
+                        render_error("Could not find existing entry to replace.")
+                        sys.exit(1)
+                else:
+                    # If multiple similar jobs, replace the first one (or could prompt which one)
+                    # For now, replace the first one found
+                    old_entry = similar_jobs[0][1]
+                
+                console.print()
+                console.print("[cyan]Replacing existing cron job...[/cyan]")
+                
+                replace_success, replace_message = replace_cron_job(old_entry, cron_schedule, task)
+                
+                if replace_success:
+                    console.print(f"[green]✓ {replace_message}[/green]")
+                    console.print(f"\n[cyan]Cron job updated successfully![/cyan]")
+                    console.print(f"[dim]View with: crontab -l[/dim]")
+                else:
+                    render_error(replace_message)
+                    sys.exit(1)
+            
+            elif choice == "3":
+                # Add anyway - proceed with adding the new job
+                # We need to bypass the duplicate check, so we'll add it directly
+                from dav.cron_helper import detect_dav_path, get_current_crontab, _write_crontab
+                
+                dav_path = detect_dav_path()
+                new_cron_entry = f'{cron_schedule} {dav_path} --automation "{task}"'
+                
+                current_crontab = get_current_crontab()
+                new_crontab = current_crontab + [new_cron_entry]
+                
+                # Write crontab using helper function
+                success, error_msg = _write_crontab(new_crontab)
+                
+                if success:
+                    console.print()
+                    console.print(f"[green]✓ Scheduled: {task} (schedule: {cron_schedule})[/green]")
+                    console.print(f"\n[cyan]Cron job added successfully![/cyan]")
+                    console.print(f"[dim]View with: crontab -l[/dim]")
+                    console.print()
+                    console.print("[yellow]Note:[/yellow] Multiple jobs with the same task are now scheduled.")
+                else:
+                    error_message = f"Failed to install crontab: {error_msg}" if error_msg else "Failed to install crontab"
+                    render_error(error_message)
+                    sys.exit(1)
+        
+        else:
+            # Other error (not a duplicate)
+            render_error(message)
+            sys.exit(1)
 
 
 if __name__ == "__main__":
