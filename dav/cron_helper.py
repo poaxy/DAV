@@ -37,7 +37,7 @@ def detect_dav_path() -> str:
 
 def validate_cron_syntax(cron_string: str) -> bool:
     """
-    Validate cron syntax (basic validation).
+    Validate cron syntax (enhanced validation).
     
     Args:
         cron_string: Cron schedule string (e.g., "0 3 * * *")
@@ -45,53 +45,10 @@ def validate_cron_syntax(cron_string: str) -> bool:
     Returns:
         True if valid, False otherwise
     """
-    # Basic cron format: minute hour day month weekday
-    parts = cron_string.strip().split()
+    from dav.schedule_parser import validate_and_normalize_cron
     
-    if len(parts) != 5:
-        return False
-    
-    # Validate each part (basic check)
-    for part in parts:
-        if not re.match(r'^[\d\*\/\-,]+$', part):
-            return False
-    
-    return True
-
-
-def parse_schedule_to_cron(natural_language: str) -> Optional[str]:
-    """
-    Parse natural language schedule to cron format (basic patterns).
-    
-    This is a fallback - AI should handle most parsing.
-    
-    Args:
-        natural_language: Natural language schedule (e.g., "every night at 3")
-    
-    Returns:
-        Cron format string or None if cannot parse
-    """
-    text = natural_language.lower().strip()
-    
-    # Common patterns
-    patterns = {
-        r"every\s+night\s+at\s+(\d+)": lambda m: f"0 {m.group(1)} * * *",
-        r"daily\s+at\s+(\d+)": lambda m: f"0 {m.group(1)} * * *",
-        r"at\s+(\d+)\s+am": lambda m: f"0 {m.group(1)} * * *",
-        r"at\s+(\d+)\s+pm": lambda m: f"0 {int(m.group(1)) + 12} * * *",
-        r"every\s+day": "0 0 * * *",
-        r"weekly": "0 0 * * 0",
-        r"monthly": "0 0 1 * *",
-    }
-    
-    for pattern, replacement in patterns.items():
-        match = re.search(pattern, text)
-        if match:
-            if callable(replacement):
-                return replacement(match)
-            return replacement
-    
-    return None
+    is_valid, _, _ = validate_and_normalize_cron(cron_string)
+    return is_valid
 
 
 def get_current_crontab() -> List[str]:

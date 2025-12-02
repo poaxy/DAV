@@ -887,9 +887,9 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
 
 def _handle_schedule_command(schedule_input: str) -> None:
     """Handle --schedule command to set up cron jobs."""
-    from dav.ai_backend import AIBackend, get_system_prompt
-    from dav.cron_helper import add_cron_job, parse_schedule_to_cron
-    from dav.context import build_context, format_context_for_prompt
+    from dav.ai_backend import AIBackend
+    from dav.cron_helper import add_cron_job
+    from dav.schedule_parser import parse_schedule
     from dav.terminal import render_error, render_warning
     
     console.print("[cyan]Parsing schedule and setting up cron job...[/cyan]\n")
@@ -900,191 +900,143 @@ def _handle_schedule_command(schedule_input: str) -> None:
         from dav import config
         importlib.reload(config)
     
+    # Initialize AI backend (may fail, but that's okay - we have fallbacks)
+    ai_backend = None
     try:
         ai_backend = AIBackend()
     except ValueError as e:
-        render_error(str(e))
-        if "API key not found" in str(e):
-            console.print("\n[yellow]Tip:[/yellow] Run [cyan]dav --setup[/cyan] to configure your API keys.")
+        # AI backend not available, but we can still try dateparser and regex
+        console.print("[dim]AI backend not available, using fallback parsers...[/dim]\n")
+    
+    # Parse schedule using hybrid parser
+    result = parse_schedule(schedule_input, ai_backend=ai_backend)
+    
+    if not result.success:
+        render_error("Could not parse schedule")
+        if result.error:
+            # Print the detailed error message (may contain multiple lines)
+            error_lines = result.error.split('\n')
+            for line in error_lines:
+                if line.strip():
+                    console.print(f"[red]{line}[/red]")
+        else:
+            console.print("[red]Unknown parsing error[/red]")
+        
+        if result.attempts > 0:
+            console.print(f"\n[dim]AI parsing attempts: {result.attempts}[/dim]")
+        console.print("\n[yellow]Tip:[/yellow] Try rephrasing your schedule request.")
         sys.exit(1)
     
-    # Build context for AI
-    context = build_context(query=schedule_input)
-    context_str = format_context_for_prompt(context)
+    # Extract task and schedule from result
+    task = result.task or schedule_input
+    cron_schedule = result.schedule
     
-    # Create prompt for AI to parse schedule
-    schedule_prompt = f"""Parse this schedule request and extract:
-1. The task description (what to do)
-2. The schedule in cron format (e.g., "0 3 * * *" for daily at 3 AM)
-
-User request: {schedule_input}
-
-Respond with ONLY a JSON object in this format:
-{{
-  "task": "task description here",
-  "schedule": "0 3 * * *"
-}}
-
-Common schedule patterns:
-- "every night at 3" or "daily at 3" → "0 3 * * *"
-- "every day" → "0 0 * * *"
-- "weekly" or "every week" → "0 0 * * 0"
-- "monthly" → "0 0 1 * *"
-- "every 6 hours" → "0 */6 * * *"
-- "at 3 PM" → "0 15 * * *"
-- "at 3 AM" → "0 3 * * *"
-"""
+    if not cron_schedule:
+        render_error("Could not determine schedule from input")
+        sys.exit(1)
     
-    system_prompt = """You are a schedule parser. Extract the task and convert the schedule to cron format.
-Return ONLY valid JSON with "task" and "schedule" fields."""
+    # Show which method succeeded
+    method_names = {
+        "ai": "AI parsing",
+        "dateparser": "dateparser library",
+        "regex": "pattern matching"
+    }
+    method_name = method_names.get(result.method, "unknown method")
+    console.print(f"[dim]Parsed using: {method_name}[/dim]\n")
     
-    try:
-        # Get AI response
-        response = ai_backend.get_response(schedule_prompt, system_prompt=system_prompt)
+    # Check if NOPASSWD is configured before scheduling
+    # This is important because scheduled tasks in automation mode will fail
+    # if they require sudo and password-less sudo is not available
+    from dav.sudo_handler import SudoHandler
+    from rich.prompt import Confirm
+    
+    sudo_handler = SudoHandler()
+    is_configured, status_msg = sudo_handler.check_sudoers_setup()
+    
+    # Check if task might require sudo (common keywords)
+    task_lower = task.lower()
+    sudo_keywords = [
+        "update", "upgrade", "install", "remove", "system", "service",
+        "restart", "start", "stop", "enable", "disable", "configure",
+        "maintenance", "security", "package", "apt", "yum", "dnf",
+        "systemctl", "journalctl", "log", "firewall", "ufw"
+    ]
+    might_need_sudo = any(keyword in task_lower for keyword in sudo_keywords)
+    
+    if not is_configured and might_need_sudo:
+        console.print()
+        render_warning("Password-less sudo (NOPASSWD) is not configured.")
+        console.print(f"[yellow]⚠ {status_msg}[/yellow]")
+        console.print()
+        console.print("[bold]Important:[/bold] Scheduled tasks that require sudo will fail silently")
+        console.print("if password-less sudo is not configured.")
+        console.print()
+        console.print("[bold]Would you like to configure password-less sudo now?[/bold]")
+        console.print("[dim]This will create /etc/sudoers.d/dav-automation with appropriate permissions.[/dim]")
+        console.print()
         
-        # Parse JSON response
-        import json
-        import re
-        
-        # Extract JSON from response (look for JSON block or inline JSON)
-        # First try to find JSON in code blocks
-        json_block_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
-        if json_block_match:
-            json_str = json_block_match.group(1)
-        else:
-            # Try to find inline JSON object
-            json_inline_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
-            if json_inline_match:
-                json_str = json_inline_match.group(0)
-            else:
-                json_str = None
-        
-        if not json_str:
-            # Try fallback parsing
-            cron_schedule = parse_schedule_to_cron(schedule_input)
-            if cron_schedule:
-                task = schedule_input  # Use full input as task
-            else:
-                render_error("Could not parse schedule. Please use format like 'task every night at 3'")
-                sys.exit(1)
-        else:
-            try:
-                parsed = json.loads(json_str)
-                task = parsed.get("task", schedule_input)
-                cron_schedule = parsed.get("schedule")
-                
-                if not cron_schedule:
-                    # Try fallback
-                    cron_schedule = parse_schedule_to_cron(schedule_input)
-                    if not cron_schedule:
-                        render_error("Could not determine schedule. Please be more specific.")
-                        sys.exit(1)
-            except json.JSONDecodeError:
-                # Try fallback
-                cron_schedule = parse_schedule_to_cron(schedule_input)
-                if cron_schedule:
-                    task = schedule_input
-                else:
-                    render_error("Could not parse schedule format.")
-                    sys.exit(1)
-        
-        # Check if NOPASSWD is configured before scheduling
-        # This is important because scheduled tasks in automation mode will fail
-        # if they require sudo and password-less sudo is not available
-        from dav.sudo_handler import SudoHandler
-        from rich.prompt import Confirm
-        
-        sudo_handler = SudoHandler()
-        is_configured, status_msg = sudo_handler.check_sudoers_setup()
-        
-        # Check if task might require sudo (common keywords)
-        task_lower = task.lower()
-        sudo_keywords = [
-            "update", "upgrade", "install", "remove", "system", "service",
-            "restart", "start", "stop", "enable", "disable", "configure",
-            "maintenance", "security", "package", "apt", "yum", "dnf",
-            "systemctl", "journalctl", "log", "firewall", "ufw"
-        ]
-        might_need_sudo = any(keyword in task_lower for keyword in sudo_keywords)
-        
-        if not is_configured and might_need_sudo:
+        if Confirm.ask("Configure sudoers NOPASSWD automatically?", default=True):
             console.print()
-            render_warning("Password-less sudo (NOPASSWD) is not configured.")
-            console.print(f"[yellow]⚠ {status_msg}[/yellow]")
-            console.print()
-            console.print("[bold]Important:[/bold] Scheduled tasks that require sudo will fail silently")
-            console.print("if password-less sudo is not configured.")
-            console.print()
-            console.print("[bold]Would you like to configure password-less sudo now?[/bold]")
-            console.print("[dim]This will create /etc/sudoers.d/dav-automation with appropriate permissions.[/dim]")
+            console.print("[cyan]Configuring sudoers...[/cyan]")
+            console.print("[dim]You may be prompted for your sudo password.[/dim]")
             console.print()
             
-            if Confirm.ask("Configure sudoers NOPASSWD automatically?", default=True):
+            # Ask for security preference
+            use_specific = Confirm.ask(
+                "Use specific commands only (more secure)?",
+                default=True
+            )
+            
+            success, message = sudo_handler.configure_sudoers(specific_commands=use_specific)
+            
+            if success:
                 console.print()
-                console.print("[cyan]Configuring sudoers...[/cyan]")
-                console.print("[dim]You may be prompted for your sudo password.[/dim]")
+                console.print(f"[green]✓ {message}[/green]")
                 console.print()
-                
-                # Ask for security preference
-                use_specific = Confirm.ask(
-                    "Use specific commands only (more secure)?",
-                    default=True
-                )
-                
-                success, message = sudo_handler.configure_sudoers(specific_commands=use_specific)
-                
-                if success:
-                    console.print()
-                    console.print(f"[green]✓ {message}[/green]")
-                    console.print()
-                else:
-                    console.print()
-                    console.print(f"[red]✗ {message}[/red]")
-                    console.print()
-                    console.print("[yellow]You can still schedule the task, but it may fail if sudo is required.[/yellow]")
-                    console.print(sudo_handler.get_sudoers_instructions())
-                    console.print()
-                    
-                    if not Confirm.ask("Continue scheduling anyway?", default=True):
-                        console.print("[yellow]Scheduling cancelled.[/yellow]")
-                        sys.exit(0)
             else:
                 console.print()
-                console.print("[yellow]Skipping automatic configuration.[/yellow]")
-                console.print(sudo_handler.get_sudoers_instructions())
+                console.print(f"[red]✗ {message}[/red]")
                 console.print()
-                console.print("[yellow]Warning: The scheduled task may fail if it requires sudo.[/yellow]")
+                console.print("[yellow]You can still schedule the task, but it may fail if sudo is required.[/yellow]")
+                console.print(sudo_handler.get_sudoers_instructions())
                 console.print()
                 
                 if not Confirm.ask("Continue scheduling anyway?", default=True):
                     console.print("[yellow]Scheduling cancelled.[/yellow]")
                     sys.exit(0)
-        elif not is_configured:
-            # NOPASSWD not configured but task probably doesn't need sudo
-            # Just show a brief warning
-            console.print()
-            render_warning("Password-less sudo is not configured.")
-            console.print("[dim]If this task requires sudo, it will fail. Run 'dav --cron-setup' to configure.[/dim]")
-            console.print()
-        
-        # Add cron job
-        success, message = add_cron_job(cron_schedule, task, auto_confirm=True)
-        
-        if success:
-            console.print(f"[green]✓ {message}[/green]")
-            console.print(f"\n[cyan]Cron job added successfully![/cyan]")
-            console.print(f"[dim]View with: crontab -l[/dim]")
-            
-            # Final reminder if NOPASSWD not configured and task might need sudo
-            if not is_configured and might_need_sudo:
-                console.print()
-                render_warning("Remember: Configure password-less sudo with 'dav --cron-setup' if this task requires sudo.")
         else:
-            render_error(message)
-            sys.exit(1)
+            console.print()
+            console.print("[yellow]Skipping automatic configuration.[/yellow]")
+            console.print(sudo_handler.get_sudoers_instructions())
+            console.print()
+            console.print("[yellow]Warning: The scheduled task may fail if it requires sudo.[/yellow]")
+            console.print()
+            
+            if not Confirm.ask("Continue scheduling anyway?", default=True):
+                console.print("[yellow]Scheduling cancelled.[/yellow]")
+                sys.exit(0)
+    elif not is_configured:
+        # NOPASSWD not configured but task probably doesn't need sudo
+        # Just show a brief warning
+        console.print()
+        render_warning("Password-less sudo is not configured.")
+        console.print("[dim]If this task requires sudo, it will fail. Run 'dav --cron-setup' to configure.[/dim]")
+        console.print()
     
-    except Exception as e:
-        render_error(f"Error setting up schedule: {str(e)}")
+    # Add cron job
+    success, message = add_cron_job(cron_schedule, task, auto_confirm=True)
+    
+    if success:
+        console.print(f"[green]✓ {message}[/green]")
+        console.print(f"\n[cyan]Cron job added successfully![/cyan]")
+        console.print(f"[dim]View with: crontab -l[/dim]")
+        
+        # Final reminder if NOPASSWD not configured and task might need sudo
+        if not is_configured and might_need_sudo:
+            console.print()
+            render_warning("Remember: Configure password-less sudo with 'dav --cron-setup' if this task requires sudo.")
+    else:
+        render_error(message)
         sys.exit(1)
 
 
