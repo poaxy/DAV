@@ -3,7 +3,7 @@
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List
 
 
 @dataclass
@@ -161,7 +161,7 @@ class RateLimiter:
 
 
 # Global rate limiter instances
-# API rate limiter: 10 requests per minute, 100 per hour
+# API rate limiter: burst capacity of 10 requests with a refill rate of ~10/minute
 api_rate_limiter = RateLimiter(
     capacity=10.0,
     refill_rate=10.0 / 60.0,  # 10 tokens per 60 seconds

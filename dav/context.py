@@ -13,6 +13,9 @@ MAX_DIR_FILES = 15
 MAX_STDIN_CHARS = get_max_stdin_chars()
 MAX_PATH_LENGTH = 200
 
+# Cached OS info (does not change during the process lifetime)
+_CACHED_OS_INFO: Optional[Dict[str, Any]] = None
+
 
 def truncate_path(path: str) -> str:
     """Truncate path if it exceeds MAX_PATH_LENGTH."""
@@ -65,8 +68,16 @@ def get_linux_distro() -> Dict[str, str]:
 
 
 def get_os_info() -> Dict[str, Any]:
-    """Get operating system information."""
-    os_info = {
+    """Get operating system information.
+
+    Results are cached for the lifetime of the process since OS identity
+    (kernel, distribution) does not change while Dav is running.
+    """
+    global _CACHED_OS_INFO
+    if _CACHED_OS_INFO is not None:
+        return _CACHED_OS_INFO
+
+    os_info: Dict[str, Any] = {
         "system": platform.system(),
         "release": platform.release(),
         "version": platform.version(),
@@ -90,6 +101,7 @@ def get_os_info() -> Dict[str, Any]:
             elif "distrib_codename" in distro_info:
                 os_info["distribution_codename"] = distro_info["distrib_codename"]
     
+    _CACHED_OS_INFO = os_info
     return os_info
 
 
@@ -110,9 +122,9 @@ def get_current_directory() -> Dict[str, Any]:
         # List directory contents (limited)
         if cwd_path.exists() and cwd_path.is_dir():
             try:
-                items = list(cwd_path.iterdir())
-                # Limit to MAX_DIR_FILES
-                items = items[:MAX_DIR_FILES]
+                # List directory contents once and reuse slice/length
+                all_items = list(cwd_path.iterdir())
+                items = all_items[:MAX_DIR_FILES]
                 context["contents"] = [
                     {
                         "name": item.name,
@@ -121,7 +133,7 @@ def get_current_directory() -> Dict[str, Any]:
                     }
                     for item in items
                 ]
-                if len(list(cwd_path.iterdir())) > MAX_DIR_FILES:
+                if len(all_items) > MAX_DIR_FILES:
                     context["contents_truncated"] = True
             except PermissionError:
                 context["contents"] = "permission denied"

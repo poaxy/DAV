@@ -1,6 +1,7 @@
 """Session management for maintaining context across queries."""
 
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -18,6 +19,9 @@ class SessionManager:
         self.session_id = session_id or f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         self.session_file = self.session_dir / f"{self.session_id}.json"
         self.messages: List[Dict] = []
+        # Track last save time to avoid excessive writes when many messages
+        # are added in quick succession (e.g., automation feedback loop).
+        self._last_save_time: float = 0.0
         self._load_session()
     
     def _load_session(self) -> None:
@@ -36,8 +40,16 @@ class SessionManager:
         else:
             self.messages = []
     
-    def _save_session(self) -> None:
-        """Save session to file."""
+    def _save_session(self, force: bool = False) -> None:
+        """Save session to file, with simple debouncing.
+
+        To reduce filesystem pressure during automation or tight loops, we
+        avoid writing more often than once every ~0.1s unless forced.
+        """
+        now = time.time()
+        if not force and (now - self._last_save_time) < 0.1:
+            return
+
         try:
             data = {
                 "session_id": self.session_id,
@@ -45,12 +57,14 @@ class SessionManager:
                 "messages": self.messages,
             }
             with open(self.session_file, "w") as f:
+                # Indent for readability; cost is small relative to I/O.
                 json.dump(data, f, indent=2)
             
             # Set secure permissions after saving
             from dav.file_security import set_secure_permissions
             set_secure_permissions(self.session_file)
-        except Exception as e:
+            self._last_save_time = now
+        except Exception:
             # Silently fail if we can't save
             pass
     
@@ -62,6 +76,7 @@ class SessionManager:
             "content": content,
             "timestamp": datetime.now().isoformat(),
         })
+        # Normal message additions can be debounced
         self._save_session()
     
     def add_execution_results(self, results: List[ExecutionResult]) -> None:
@@ -102,6 +117,8 @@ class SessionManager:
                 for r in results
             ],
         })
+        # Execution results are relatively infrequent but can still arrive
+        # in bursts; allow debouncing as well.
         self._save_session()
     
     def get_messages(self) -> List[Dict]:

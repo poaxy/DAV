@@ -18,14 +18,22 @@ class HistoryManager:
         
         self.db_path = db_path or get_history_db_path()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Lazy-initialized connection reused within this process.
+        self._conn: Optional[sqlite3.Connection] = None
         self._init_db()
+    
+    def _get_connection(self) -> sqlite3.Connection:
+        """Get or create a cached SQLite connection."""
+        if self._conn is None:
+            self._conn = sqlite3.connect(self.db_path)
+        return self._conn
     
     def _init_db(self) -> None:
         """Initialize database schema."""
         if not self.enabled:
             return
         
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS queries (
@@ -44,7 +52,6 @@ class HistoryManager:
             CREATE INDEX IF NOT EXISTS idx_session ON queries(session_id)
         """)
         conn.commit()
-        conn.close()
     
     def add_query(self, query: str, response: Optional[str] = None, 
                   session_id: Optional[str] = None, executed: bool = False) -> int:
@@ -52,7 +59,7 @@ class HistoryManager:
         if not self.enabled:
             return -1
         
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO queries (timestamp, query, response, session_id, executed)
@@ -60,7 +67,6 @@ class HistoryManager:
         """, (datetime.now().isoformat(), query, response, session_id, 1 if executed else 0))
         query_id = cursor.lastrowid
         conn.commit()
-        conn.close()
         return query_id
     
     def get_recent_queries(self, limit: int = 10) -> List[Dict]:
@@ -68,7 +74,7 @@ class HistoryManager:
         if not self.enabled:
             return []
         
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("""
@@ -78,8 +84,6 @@ class HistoryManager:
             LIMIT ?
         """, (limit,))
         rows = cursor.fetchall()
-        conn.close()
-        
         return [dict(row) for row in rows]
     
     def get_session_queries(self, session_id: str) -> List[Dict]:
@@ -87,7 +91,7 @@ class HistoryManager:
         if not self.enabled:
             return []
         
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("""
@@ -97,8 +101,6 @@ class HistoryManager:
             ORDER BY timestamp ASC
         """, (session_id,))
         rows = cursor.fetchall()
-        conn.close()
-        
         return [dict(row) for row in rows]
     
     def clear_history(self) -> None:
@@ -106,9 +108,8 @@ class HistoryManager:
         if not self.enabled:
             return
         
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM queries")
         conn.commit()
-        conn.close()
 
