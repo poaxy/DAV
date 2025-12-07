@@ -483,33 +483,28 @@ def _interpolate_rgb(start_rgb: Tuple[int, int, int], end_rgb: Tuple[int, int, i
 
 
 def render_dav_banner() -> None:
-    """Render colorful Block ASCII art banner for Dav with smooth RGB gradients."""
-    # Block ASCII art design for "DAV" with gradient colors
-    # Using solid blocks (█) and checkered blocks (░, ▒, ▓) for texture
+    """Render colorful ASCII art banner for Dav with smooth RGB gradients."""
+    # ASCII art design for "DAV" with gradient colors
     # Color gradient: blue (D) → purple (A) → pink/orange (V)
     
-    # Define the ASCII art lines - Much larger design (16 lines tall)
-    # Each line represents one row of the banner
-    # D: vertical left + curved right, A: slanted sides + horizontal bar, V: slanted sides
-    # Using █ for solid blocks and ░ for checkered/textured blocks
-    # Format: D (12 chars) + spacing (4) + A (12 chars) + spacing (4) + V (16 chars)
+    # Define the ASCII art lines - provided design
     banner_lines = [
-        "████████░░░░    ░░████░░░░░░    ░░░░██░░░░░░░░░░",
-        "██░░░░░░██░░    ░░██░░██░░░░    ░░░░██░░░░░░░░░░",
-        "██░░░░░░░░██    ░░██░░░░██░░    ░░░░██░░░░░░░░░░",
-        "██░░░░░░░░██    ░░████████░░    ░░░░██░░░░░░░░░░",
-        "██░░░░░░░░██    ░░██░░░░██░░    ░░░░██░░░░░░░░░░",
-        "██░░░░░░░░██    ░░██░░░░██░░    ░░░░██░░░░░░░░░░",
-        "██░░░░░░██░░    ░░██░░░░██░░    ░░░░██░░░░░░░░░░",
-        "████████░░░░    ░░██░░░░██░░    ░░░░██░░░░░░░░░░",
-        "░░░░░░░░░░░░    ░░░░░░░░░░░░    ░░░░░░░░░░░░░░░░",
-        "░░░░░░░░░░░░    ░░░░░░░░░░░░    ░░░░░░░░░░░░░░░░",
-        "░░░░░░░░░░░░    ░░░░░░░░░░░░    ░░░░░░░░░░░░░░░░",
-        "░░░░░░░░░░░░    ░░░░░░░░░░░░    ░░░░░░░░░░░░░░░░",
-        "░░░░░░░░░░░░    ░░░░░░░░░░░░    ░░░░░░░░░░░░░░░░",
-        "░░░░░░░░░░░░    ░░░░░░░░░░░░    ░░░░░░░░░░░░░░░░",
-        "░░░░░░░░░░░░    ░░░░░░░░░░░░    ░░░░░░░░░░░░░░░░",
-        "░░░░░░░░░░░░    ░░░░░░░░░░░░    ░░░░░░░░░░░░░░░░",
+        "",
+        "",
+        "    ,---,       ,---,                   ",
+        "  .'  .' `\\    '  .' \\            ,---. ",
+        ",---.'     \\  /  ;    '.         /__./| ",
+        "|   |  .`\\  |:  :       \\   ,---.;  ; | ",
+        ":   : |  '  |:  |   /\\   \\ /___/ \\  | | ",
+        "|   ' '  ;  :|  :  ' ;.   :\\   ;  \\ ' | ",
+        "'   | ;  .  ||  |  ;/  \\   \\\\   \\  \\: | ",
+        "|   | :  |  ''  :  | \\  \\ ,' ;   \\  ' . ",
+        "'   : | /  ; |  |  '  '--'    \\   \\   ' ",
+        "|   | '` ,/  |  :  :           \\   `  ; ",
+        ";   :  .'    |  | ,'            :   \\ | ",
+        "|   ,.'      `--''               '---\"  ",
+        "'---'                                   ",
+        "",
     ]
     
     # RGB color stops for gradient
@@ -518,15 +513,29 @@ def render_dav_banner() -> None:
     color_purple = (200, 100, 255)   # Purple
     color_pink = (255, 150, 100)     # Pink/Orange
     
-    # Calculate letter boundaries - D ends at char 12, A starts at 16, ends at 28, V starts at 32
-    # Based on the design: D (0-11), spacing (12-15), A (16-27), spacing (28-31), V (32-47)
-    d_end_char = 11   # Last character of D
-    a_start_char = 16  # First character of A
-    a_end_char = 27   # Last character of A
-    v_start_char = 32  # First character of V
+    # Calculate letter boundaries by analyzing the design
+    # Looking at the ASCII art, D appears to be on the left, A in the middle, V on the right
+    # Need to find the actual boundaries by examining non-empty lines
+    first_content_line = None
+    for line in banner_lines:
+        if line.strip():
+            first_content_line = line
+            break
     
-    first_line = banner_lines[0]
-    total_width = len(first_line)
+    if first_content_line is None:
+        # Fallback if no content found
+        first_content_line = banner_lines[2] if len(banner_lines) > 2 else ""
+    
+    total_width = len(first_content_line)
+    
+    # Analyze the design to find letter boundaries
+    # D region: approximately chars 4-12 (",---," pattern)
+    # A region: approximately chars 20-30 ("'  .' \\" pattern)  
+    # V region: approximately chars 40+ (",---." pattern)
+    d_end_char = 12   # End of D (after ",---,")
+    a_start_char = 20  # Start of A
+    a_end_char = 30   # End of A
+    v_start_char = 40  # Start of V
     
     # Create a Text object to build the colored banner
     banner_text = Text()
@@ -559,17 +568,9 @@ def render_dav_banner() -> None:
                 rgb = _interpolate_rgb(color_purple, color_pink, v_region_pos)
             
             # Create style with RGB color
-            # Use slightly dimmer color for checkered blocks
-            if char == '░':
-                # Dim the color for checkered blocks (reduce brightness by 30%)
-                dimmed_rgb = (
-                    int(rgb[0] * 0.7),
-                    int(rgb[1] * 0.7),
-                    int(rgb[2] * 0.7)
-                )
-                style = Style(color=f"rgb({dimmed_rgb[0]},{dimmed_rgb[1]},{dimmed_rgb[2]})")
-            elif char == '█':
-                # Full brightness for solid blocks
+            # Apply color to all non-space characters
+            if char != ' ':
+                # Full brightness for all ASCII art characters
                 style = Style(color=f"rgb({rgb[0]},{rgb[1]},{rgb[2]})")
             else:
                 # No style for spaces
