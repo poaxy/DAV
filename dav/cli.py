@@ -807,7 +807,15 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
         )
         # Pass model and backend for panel display
         render_context_status(usage, model=ai_backend.model, backend=ai_backend.backend)
-        return input("dav> ").strip()
+        
+        # Display formatted prompt
+        from dav.terminal import format_interactive_prompt
+        prompt_text = format_interactive_prompt()
+        console.print(prompt_text, end="")
+        
+        # Get user input (end="" prevents newline after prompt)
+        user_input = input()
+        return user_input.strip()
     
     while True:
         try:

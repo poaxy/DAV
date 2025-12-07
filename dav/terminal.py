@@ -148,6 +148,52 @@ def _get_rate_limit_info() -> tuple[str, str, int, int]:
     return formatted, color, remaining_requests, total_requests
 
 
+def format_interactive_prompt() -> Text:
+    """Format the interactive mode prompt with username and path.
+    
+    Returns:
+        Rich Text object with formatted two-line prompt:
+        Line 1: [USERNAME]-[PATH] (brackets: cyan, username: bright_red, path: blue)
+        Line 2: [Dav]➜ (brackets: cyan, Dav: white, arrow: cyan)
+    """
+    import os
+    from pathlib import Path
+    
+    # Get username
+    try:
+        import pwd
+        username = pwd.getpwuid(os.getuid()).pw_name
+    except Exception:
+        username = os.getenv("USER", os.getenv("USERNAME", "user"))
+    
+    # Get current directory and replace home with ~
+    cwd = os.getcwd()
+    home = str(Path.home())
+    if cwd.startswith(home):
+        path = "~" + cwd[len(home):]
+    else:
+        path = cwd
+    
+    # Build formatted prompt
+    prompt_text = Text()
+    
+    # Line 1: [USERNAME]-[PATH]
+    prompt_text.append("[", style="cyan")
+    prompt_text.append(username, style="bright_red")
+    prompt_text.append("]-[", style="cyan")
+    prompt_text.append(path, style="blue")
+    prompt_text.append("]", style="cyan")
+    prompt_text.append("\n")
+    
+    # Line 2: [Dav]➜
+    prompt_text.append("[", style="cyan")
+    prompt_text.append("Dav", style="white")
+    prompt_text.append("]", style="cyan")
+    prompt_text.append("➜ ", style="cyan")
+    
+    return prompt_text
+
+
 def render_context_status_panel(usage, model: str, backend: str) -> None:
     """
     Render context usage status in a colored border panel.
@@ -166,19 +212,16 @@ def render_context_status_panel(usage, model: str, backend: str) -> None:
     used_k = usage.total_used / 1000
     max_k = usage.max_tokens / 1000
     
-    # Determine color based on usage percentage (for border)
+    # Determine color based on usage percentage (for border only)
     if usage.usage_percentage < 50:
         border_color = "green"
-        context_color = "green"
-        accent_color = "bright_green"
     elif usage.usage_percentage < 80:
         border_color = "yellow"
-        context_color = "yellow"
-        accent_color = "bright_yellow"
     else:
         border_color = "red"
-        context_color = "red"
-        accent_color = "bright_red"
+    
+    # Context color is fixed to light orange (using RGB for light orange)
+    context_color_rgb = "rgb(255,200,100)"  # Light orange
     
     # Get model info
     model_short = _get_shortened_model_name(model, backend)
@@ -187,9 +230,9 @@ def render_context_status_panel(usage, model: str, backend: str) -> None:
     rate_text, rate_color, rate_remaining, rate_total = _get_rate_limit_info()
     
     # Build panel content
-    # Format: [green]context: 4.2K/128.0K (3.3%)[/green] | [cyan]model: gpt-4[/cyan] | [yellow]rate: 7/10[/yellow]
+    # Format: [light orange]context: 4.2K/128.0K (3.3%)[/light orange] | [cyan]model: gpt-4[/cyan] | [yellow]rate: 7/10[/yellow]
     content = (
-        f"[{context_color}]context: {used_k:.1f}K/{max_k:.1f}K ({usage.usage_percentage:.1f}%)[/{context_color}] "
+        f"[{context_color_rgb}]context: {used_k:.1f}K/{max_k:.1f}K ({usage.usage_percentage:.1f}%)[/{context_color_rgb}] "
         f"[dim]│[/dim] "
         f"[cyan]model: {model_short}[/cyan] "
         f"[dim]│[/dim] "
@@ -529,10 +572,10 @@ def _get_rainbow_color(position: float) -> Tuple[int, int, int]:
 
 def render_dav_banner() -> None:
     """Render colorful ASCII art banner for Dav with smooth RGB gradients."""
-    # ASCII art design for "DAV" with gradient colors
-    # Color gradient: blue (D) → purple (A) → pink/orange (V)
+    # ASCII art design for "DAV" with full rainbow gradient
+    # Color gradient spans full spectrum: Blue → Cyan → Green → Yellow → Orange → Red → Magenta → Pink
     
-    # Define the ASCII art lines - provided design
+    # Define the ASCII art lines
     banner_lines = [
         "",
         "",
