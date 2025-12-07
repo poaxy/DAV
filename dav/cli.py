@@ -395,6 +395,7 @@ def _build_prompt_with_context(
     execute_mode: bool = False,
     interactive_mode: bool = False,
     automation_mode: bool = False,
+    command_outputs: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[Dict, str, str]:
     """
     Build prompt with context and session history.
@@ -405,6 +406,8 @@ def _build_prompt_with_context(
         stdin_content: Optional stdin content
         execute_mode: Whether in execute mode (affects system prompt)
         interactive_mode: Whether in interactive mode (affects system prompt)
+        automation_mode: Whether in automation mode
+        command_outputs: Optional list of recent command outputs to include
     
     Returns:
         Tuple of (context_dict, context_string, system_prompt)
@@ -414,7 +417,7 @@ def _build_prompt_with_context(
     from dav.ai_backend import get_system_prompt
     
     context = build_context(query=query, stdin_content=stdin_content)
-    context_str = format_context_for_prompt(context)
+    context_str = format_context_for_prompt(context, command_outputs=command_outputs)
     
     session_context = session_manager.get_conversation_context()
     if session_context:
@@ -773,17 +776,43 @@ def _execute_with_feedback_loop(
     return execution_results
 
 
-def _handle_command_execution(command: str) -> bool:
+def _truncate_output(output: str, max_lines: int = 2000, keep_lines: int = 1000) -> str:
+    """
+    Truncate output intelligently.
+    
+    Args:
+        output: Output string to truncate
+        max_lines: Maximum lines before truncation
+        keep_lines: Number of lines to keep when truncating
+    
+    Returns:
+        Truncated output string with note if truncated
+    """
+    if not output:
+        return output
+    
+    lines = output.split('\n')
+    if len(lines) <= max_lines:
+        return output
+    
+    # Truncate to last N lines
+    truncated = '\n'.join(lines[-keep_lines:])
+    return f"[... {len(lines) - keep_lines} lines truncated ...]\n{truncated}"
+
+
+def _handle_command_execution(command: str, command_outputs: List[Dict[str, Any]]) -> bool:
     """
     Execute a shell command and handle directory changes.
     
     Args:
         command: Command string (with > prefix already stripped)
+        command_outputs: List to store command outputs for Dav context
     
     Returns:
         True if command executed successfully, False otherwise
     """
     import os
+    import time
     from dav.executor import execute_command
     from dav.terminal import render_error, render_info
     
@@ -804,15 +833,53 @@ def _handle_command_execution(command: str) -> bool:
         
         try:
             os.chdir(target_dir)
+            # Store cd command output (no stdout/stderr, but record the command)
+            command_outputs.append({
+                "command": command,
+                "stdout": "",
+                "stderr": "",
+                "success": True,
+                "timestamp": time.time()
+            })
+            # Keep only last 20 commands
+            if len(command_outputs) > 20:
+                command_outputs.pop(0)
             return True
         except FileNotFoundError:
             render_error(f"Directory not found: {target_dir}")
+            command_outputs.append({
+                "command": command,
+                "stdout": "",
+                "stderr": f"Directory not found: {target_dir}",
+                "success": False,
+                "timestamp": time.time()
+            })
+            if len(command_outputs) > 20:
+                command_outputs.pop(0)
             return False
         except PermissionError:
             render_error(f"Permission denied: {target_dir}")
+            command_outputs.append({
+                "command": command,
+                "stdout": "",
+                "stderr": f"Permission denied: {target_dir}",
+                "success": False,
+                "timestamp": time.time()
+            })
+            if len(command_outputs) > 20:
+                command_outputs.pop(0)
             return False
         except Exception as e:
             render_error(f"Error changing directory: {str(e)}")
+            command_outputs.append({
+                "command": command,
+                "stdout": "",
+                "stderr": f"Error changing directory: {str(e)}",
+                "success": False,
+                "timestamp": time.time()
+            })
+            if len(command_outputs) > 20:
+                command_outputs.pop(0)
             return False
     
     # Execute other commands using executor
@@ -824,28 +891,52 @@ def _handle_command_execution(command: str) -> bool:
             automation_mode=False,
         )
         
-        # If there's stderr output, it's already been printed by executor
-        # Return success status
+        # Store output (truncate if needed)
+        truncated_stdout = _truncate_output(stdout)
+        truncated_stderr = _truncate_output(stderr)
+        
+        command_outputs.append({
+            "command": command,
+            "stdout": truncated_stdout,
+            "stderr": truncated_stderr,
+            "success": success,
+            "timestamp": time.time()
+        })
+        
+        # Keep only last 20 commands
+        if len(command_outputs) > 20:
+            command_outputs.pop(0)
+        
         return success
     except Exception as e:
         render_error(f"Error executing command: {str(e)}")
+        command_outputs.append({
+            "command": command,
+            "stdout": "",
+            "stderr": f"Error executing command: {str(e)}",
+            "success": False,
+            "timestamp": time.time()
+        })
+        if len(command_outputs) > 20:
+            command_outputs.pop(0)
         return False
 
 
-def _handle_app_function(func_name: str, current_mode: str) -> Tuple[Optional[str], bool]:
+def _handle_app_function(func_name: str, current_mode: str, command_outputs: List[Dict[str, Any]]) -> Tuple[Optional[str], bool]:
     """
     Handle app functions (commands starting with /).
     
     Args:
         func_name: Function name (without / prefix)
         current_mode: Current mode ("interactive" or "command")
+        command_outputs: List of command outputs (cleared on mode switch)
     
     Returns:
         Tuple of (new_mode, should_exit)
         - new_mode: New mode to switch to, or None if no change
         - should_exit: True if should exit interactive mode
     """
-    from dav.terminal import render_error, render_info
+    from dav.terminal import render_error, render_info, render_dav_banner
     
     func_name = func_name.lower().strip()
     
@@ -856,6 +947,13 @@ def _handle_app_function(func_name: str, current_mode: str) -> Tuple[Optional[st
         if current_mode == "command":
             render_info("Already in command mode. Commands can be run directly without '>' prefix.")
             return None, False
+        # Clear command outputs and screen when switching modes
+        command_outputs.clear()
+        console.clear()
+        render_dav_banner()
+        console.print("[bold green]Dav Interactive Mode[/bold green]")
+        console.print("Type 'exit' or 'quit' to exit, 'clear' to clear session")
+        console.print("Use '>' prefix to execute commands, '/' for functions (/exit, /cmd, /dav, /int, /clear)\n")
         render_info("Entering command mode. Commands can be run directly without '>' prefix. Use '/dav' to talk to Dav.")
         return "command", False
     
@@ -870,16 +968,32 @@ def _handle_app_function(func_name: str, current_mode: str) -> Tuple[Optional[st
         if current_mode == "interactive":
             render_info("Already in interactive mode.")
             return None, False
+        # Clear command outputs and screen when switching modes
+        command_outputs.clear()
+        console.clear()
+        render_dav_banner()
+        console.print("[bold green]Dav Interactive Mode[/bold green]")
+        console.print("Type 'exit' or 'quit' to exit, 'clear' to clear session")
+        console.print("Use '>' prefix to execute commands, '/' for functions (/exit, /cmd, /dav, /int, /clear)\n")
         render_info("Switching to interactive mode.")
         return "interactive", False
     
+    elif func_name == "clear":
+        # Clear the screen and re-display banner
+        console.clear()
+        render_dav_banner()
+        console.print("[bold green]Dav Interactive Mode[/bold green]")
+        console.print("Type 'exit' or 'quit' to exit, 'clear' to clear session")
+        console.print("Use '>' prefix to execute commands, '/' for functions (/exit, /cmd, /dav, /int, /clear)\n")
+        return None, False
+    
     else:
-        render_error(f"Unknown function: /{func_name}. Available functions: /exit, /cmd, /dav, /int")
+        render_error(f"Unknown function: /{func_name}. Available functions: /exit, /cmd, /dav, /int, /clear")
         return None, False
 
 
 def _route_input(user_input: str, current_mode: str, ai_backend, history_manager, session_manager, 
-                 context_tracker, execute, auto_confirm) -> Tuple[Optional[str], bool]:
+                 context_tracker, execute, auto_confirm, command_outputs: List[Dict[str, Any]]) -> Tuple[Optional[str], bool]:
     """
     Route user input based on prefix and current mode.
     
@@ -892,6 +1006,7 @@ def _route_input(user_input: str, current_mode: str, ai_backend, history_manager
         context_tracker: Context tracker instance
         execute: Execute mode flag
         auto_confirm: Auto confirm flag
+        command_outputs: List of command outputs for Dav context
     
     Returns:
         Tuple of (new_mode, should_exit)
@@ -910,18 +1025,18 @@ def _route_input(user_input: str, current_mode: str, ai_backend, history_manager
     if user_input.startswith(">"):
         command = user_input[1:].strip()
         if command:
-            _handle_command_execution(command)
+            _handle_command_execution(command, command_outputs)
         return None, False
     
     # Check for app function prefix (/)
     if user_input.startswith("/"):
         func_name = user_input[1:].strip()
-        return _handle_app_function(func_name, current_mode)
+        return _handle_app_function(func_name, current_mode, command_outputs)
     
     # Regular text input
     if current_mode == "command":
         # In command mode, regular text is treated as a command (no > prefix needed)
-        _handle_command_execution(user_input)
+        _handle_command_execution(user_input, command_outputs)
         return None, False
     else:
         # In interactive mode, send to AI
@@ -948,7 +1063,7 @@ def _route_input(user_input: str, current_mode: str, ai_backend, history_manager
         # Process with AI
         from dav.terminal import render_streaming_response_with_loading
         context_data, full_prompt, system_prompt = _build_prompt_with_context(
-            query, session_manager, execute_mode=execute, interactive_mode=True
+            query, session_manager, execute_mode=execute, interactive_mode=True, command_outputs=command_outputs
         )
         
         backend_name = ai_backend.backend.title()
@@ -994,10 +1109,13 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
     
     console.print("[bold green]Dav Interactive Mode[/bold green]")
     console.print("Type 'exit' or 'quit' to exit, 'clear' to clear session")
-    console.print("Use '>' prefix to execute commands, '/' for functions (/exit, /cmd, /dav, /int)\n")
+    console.print("Use '>' prefix to execute commands, '/' for functions (/exit, /cmd, /dav, /int, /clear)\n")
     
     # Track current mode: "interactive" (default) or "command"
     current_mode = "interactive"
+    
+    # Store command outputs for Dav context (cleared on mode switch)
+    command_outputs: List[Dict[str, Any]] = []
     
     # Helper function to display context and prompt
     def display_prompt_with_context():
@@ -1051,6 +1169,7 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                 context_tracker,
                 execute,
                 auto_confirm,
+                command_outputs,
             )
             
             # Handle mode transition

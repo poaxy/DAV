@@ -4,7 +4,7 @@ import os
 import platform
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from dav.config import get_max_stdin_chars
 
@@ -181,8 +181,14 @@ def build_context(query: Optional[str] = None, stdin_content: Optional[str] = No
     return context
 
 
-def format_context_for_prompt(context: Dict[str, Any]) -> str:
-    """Format context dictionary into a readable prompt string."""
+def format_context_for_prompt(context: Dict[str, Any], command_outputs: Optional[List[Dict[str, Any]]] = None) -> str:
+    """Format context dictionary into a readable prompt string.
+    
+    Args:
+        context: Context dictionary
+        command_outputs: Optional list of recent command outputs to include
+    """
+    
     lines = []
     
     # OS Information
@@ -234,6 +240,34 @@ def format_context_for_prompt(context: Dict[str, Any]) -> str:
     elif contents == "permission denied":
         lines.append("- Contents: permission denied")
     lines.append("")
+    
+    # Command Outputs (visible to Dav)
+    if command_outputs:
+        lines.append("## Recent Command Outputs (visible to Dav)")
+        for output_entry in command_outputs:
+            command = output_entry.get("command", "unknown")
+            success = output_entry.get("success", False)
+            stdout = output_entry.get("stdout", "")
+            stderr = output_entry.get("stderr", "")
+            
+            status = "Success" if success else "Failed"
+            lines.append(f"### Command: {command}")
+            lines.append(f"Status: {status}")
+            
+            if stdout or stderr:
+                lines.append("Output:")
+                lines.append("```")
+                if stdout:
+                    lines.append(stdout)
+                if stderr:
+                    if stdout:
+                        lines.append("")  # Blank line between stdout and stderr
+                    lines.append(f"[stderr] {stderr}")
+                lines.append("```")
+            else:
+                lines.append("Output: (no output)")
+            lines.append("")
+        lines.append("")
     
     # Stdin Input
     if "stdin" in context:
