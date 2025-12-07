@@ -1030,8 +1030,73 @@ def _route_input(user_input: str, current_mode: str, ai_backend, history_manager
     
     # Check for app function prefix (/)
     if user_input.startswith("/"):
-        func_name = user_input[1:].strip()
-        return _handle_app_function(func_name, current_mode, command_outputs)
+        # Extract function name (first word) and any remaining text
+        parts = user_input[1:].strip().split(None, 1)  # Split on first whitespace
+        func_name = parts[0] if parts else ""
+        remaining_text = parts[1] if len(parts) > 1 else None
+        
+        # Warn if other functions have extra text (except /dav which uses it as query)
+        if remaining_text and func_name != "dav":
+            render_warning(f"Extra text after /{func_name} will be ignored. Use '/dav <text>' to ask Dav a question.")
+        
+        # Handle the function
+        new_mode, should_exit = _handle_app_function(func_name, current_mode, command_outputs)
+        
+        # Special handling for /dav with additional text: switch mode and process query
+        if func_name == "dav" and remaining_text and new_mode == "interactive":
+            # Switch mode first
+            # Then process the remaining text as a query
+            query = remaining_text.strip()
+            if query:
+                # Validate and sanitize user input
+                is_valid, length_error = validate_query_length(query)
+                if not is_valid:
+                    render_error(length_error or "Query validation failed")
+                    return new_mode, False
+                
+                # Check rate limit
+                is_allowed, rate_limit_error = check_api_rate_limit()
+                if not is_allowed:
+                    render_warning(rate_limit_error or "Rate limit exceeded. Please wait.")
+                    return new_mode, False
+                
+                # Sanitize user input
+                query = sanitize_user_input(query)
+                
+                # Check for prompt injection
+                is_injection, injection_reason = detect_prompt_injection(query)
+                if is_injection:
+                    render_warning(f"Potential prompt injection detected: {injection_reason}")
+                
+                # Process with AI
+                from dav.terminal import render_streaming_response_with_loading
+                context_data, full_prompt, system_prompt = _build_prompt_with_context(
+                    query, session_manager, execute_mode=execute, interactive_mode=True, command_outputs=command_outputs
+                )
+                
+                backend_name = ai_backend.backend.title()
+                console.print()
+                response = render_streaming_response_with_loading(
+                    ai_backend.stream_response(full_prompt, system_prompt=system_prompt),
+                    loading_message=f"Generating response with {backend_name}...",
+                )
+                console.print()
+                
+                _process_response(
+                    response,
+                    query,
+                    ai_backend,
+                    history_manager,
+                    session_manager,
+                    execute,
+                    auto_confirm,
+                    context_data,
+                    is_interactive=True,
+                )
+                
+                console.print()
+        
+        return new_mode, should_exit
     
     # Regular text input
     if current_mode == "command":
@@ -1134,7 +1199,7 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
         
         # Display formatted prompt
         from dav.terminal import format_interactive_prompt
-        prompt_text = format_interactive_prompt()
+        prompt_text = format_interactive_prompt(mode=current_mode)
         console.print(prompt_text, end="")
         
         # Get user input (end="" prevents newline after prompt)

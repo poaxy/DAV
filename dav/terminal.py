@@ -148,12 +148,15 @@ def _get_rate_limit_info() -> tuple[str, str, int, int]:
     return formatted, color, remaining_requests, total_requests
 
 
-def format_interactive_prompt() -> Text:
-    """Format the interactive mode prompt with username and path.
+def format_interactive_prompt(mode: str = "interactive") -> Text:
+    """Format the interactive mode prompt with mode, username and path.
+    
+    Args:
+        mode: Current mode ("interactive" or "command")
     
     Returns:
         Rich Text object with formatted two-line prompt:
-        Line 1: [USERNAME]-[PATH] (brackets: cyan, username: bright_red, path: blue)
+        Line 1: [MODE]-[USERNAME]-[PATH] (brackets: cyan, mode: purple, username: bright_red, path: blue)
         Line 2: [Dav]➜ (brackets: cyan, Dav: white, arrow: cyan)
     """
     import os
@@ -177,8 +180,10 @@ def format_interactive_prompt() -> Text:
     # Build formatted prompt
     prompt_text = Text()
     
-    # Line 1: [USERNAME]-[PATH]
+    # Line 1: [MODE]-[USERNAME]-[PATH]
     prompt_text.append("[", style="cyan")
+    prompt_text.append(mode, style="purple")
+    prompt_text.append("]-[", style="cyan")
     prompt_text.append(username, style="bright_red")
     prompt_text.append("]-[", style="cyan")
     prompt_text.append(path, style="blue")
