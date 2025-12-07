@@ -781,6 +781,9 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
     from dav.context_tracker import ContextTracker
     from dav.context import format_context_for_prompt, build_context
     
+    # Clear the terminal screen for a fresh start
+    console.clear()
+    
     # Initialize context tracker
     context_tracker = ContextTracker(backend=ai_backend.backend, model=ai_backend.model)
     
