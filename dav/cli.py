@@ -773,6 +773,208 @@ def _execute_with_feedback_loop(
     return execution_results
 
 
+def _handle_command_execution(command: str) -> bool:
+    """
+    Execute a shell command and handle directory changes.
+    
+    Args:
+        command: Command string (with > prefix already stripped)
+    
+    Returns:
+        True if command executed successfully, False otherwise
+    """
+    import os
+    from dav.executor import execute_command
+    from dav.terminal import render_error, render_info
+    
+    command = command.strip()
+    if not command:
+        return False
+    
+    # Special handling for cd command
+    if command.startswith("cd "):
+        target_dir = command[3:].strip()
+        if not target_dir:
+            # cd without arguments goes to home
+            target_dir = os.path.expanduser("~")
+        else:
+            # Expand ~ and resolve path
+            target_dir = os.path.expanduser(target_dir)
+            target_dir = os.path.expandvars(target_dir)
+        
+        try:
+            os.chdir(target_dir)
+            return True
+        except FileNotFoundError:
+            render_error(f"Directory not found: {target_dir}")
+            return False
+        except PermissionError:
+            render_error(f"Permission denied: {target_dir}")
+            return False
+        except Exception as e:
+            render_error(f"Error changing directory: {str(e)}")
+            return False
+    
+    # Execute other commands using executor
+    try:
+        success, stdout, stderr, return_code = execute_command(
+            command,
+            confirm=False,
+            stream_output=True,
+            automation_mode=False,
+        )
+        
+        # If there's stderr output, it's already been printed by executor
+        # Return success status
+        return success
+    except Exception as e:
+        render_error(f"Error executing command: {str(e)}")
+        return False
+
+
+def _handle_app_function(func_name: str, current_mode: str) -> Tuple[Optional[str], bool]:
+    """
+    Handle app functions (commands starting with /).
+    
+    Args:
+        func_name: Function name (without / prefix)
+        current_mode: Current mode ("interactive" or "command")
+    
+    Returns:
+        Tuple of (new_mode, should_exit)
+        - new_mode: New mode to switch to, or None if no change
+        - should_exit: True if should exit interactive mode
+    """
+    from dav.terminal import render_error, render_info
+    
+    func_name = func_name.lower().strip()
+    
+    if func_name == "exit":
+        return None, True
+    
+    elif func_name == "cmd":
+        if current_mode == "command":
+            render_info("Already in command mode. Commands can be run directly without '>' prefix.")
+            return None, False
+        render_info("Entering command mode. Commands can be run directly without '>' prefix. Use '/dav' to talk to Dav.")
+        return "command", False
+    
+    elif func_name == "dav":
+        if current_mode != "command":
+            render_error("'/dav' can only be used in command mode. Use '/cmd' to enter command mode first.")
+            return None, False
+        render_info("Switching to Dav AI mode. Use '/cmd' to return to command mode.")
+        return "interactive", False
+    
+    elif func_name == "int":
+        if current_mode == "interactive":
+            render_info("Already in interactive mode.")
+            return None, False
+        render_info("Switching to interactive mode.")
+        return "interactive", False
+    
+    else:
+        render_error(f"Unknown function: /{func_name}. Available functions: /exit, /cmd, /dav, /int")
+        return None, False
+
+
+def _route_input(user_input: str, current_mode: str, ai_backend, history_manager, session_manager, 
+                 context_tracker, execute, auto_confirm) -> Tuple[Optional[str], bool]:
+    """
+    Route user input based on prefix and current mode.
+    
+    Args:
+        user_input: User input string
+        current_mode: Current mode ("interactive" or "command")
+        ai_backend: AI backend instance
+        history_manager: History manager instance
+        session_manager: Session manager instance
+        context_tracker: Context tracker instance
+        execute: Execute mode flag
+        auto_confirm: Auto confirm flag
+    
+    Returns:
+        Tuple of (new_mode, should_exit)
+        - new_mode: New mode to switch to, or None if no change
+        - should_exit: True if should exit interactive mode
+    """
+    from dav.terminal import render_error, render_warning
+    from dav.input_validator import sanitize_user_input, detect_prompt_injection, validate_query_length
+    from dav.rate_limiter import check_api_rate_limit
+    from dav.context import format_context_for_prompt, build_context
+    
+    if not user_input:
+        return None, False
+    
+    # Check for command execution prefix (>)
+    if user_input.startswith(">"):
+        command = user_input[1:].strip()
+        if command:
+            _handle_command_execution(command)
+        return None, False
+    
+    # Check for app function prefix (/)
+    if user_input.startswith("/"):
+        func_name = user_input[1:].strip()
+        return _handle_app_function(func_name, current_mode)
+    
+    # Regular text input
+    if current_mode == "command":
+        # In command mode, regular text is treated as a command (no > prefix needed)
+        _handle_command_execution(user_input)
+        return None, False
+    else:
+        # In interactive mode, send to AI
+        # Validate and sanitize user input
+        is_valid, length_error = validate_query_length(user_input)
+        if not is_valid:
+            render_error(length_error or "Query validation failed")
+            return None, False
+        
+        # Check rate limit
+        is_allowed, rate_limit_error = check_api_rate_limit()
+        if not is_allowed:
+            render_warning(rate_limit_error or "Rate limit exceeded. Please wait.")
+            return None, False
+        
+        # Sanitize user input
+        query = sanitize_user_input(user_input)
+        
+        # Check for prompt injection
+        is_injection, injection_reason = detect_prompt_injection(query)
+        if is_injection:
+            render_warning(f"Potential prompt injection detected: {injection_reason}")
+        
+        # Process with AI
+        from dav.terminal import render_streaming_response_with_loading
+        context_data, full_prompt, system_prompt = _build_prompt_with_context(
+            query, session_manager, execute_mode=execute, interactive_mode=True
+        )
+        
+        backend_name = ai_backend.backend.title()
+        console.print()
+        response = render_streaming_response_with_loading(
+            ai_backend.stream_response(full_prompt, system_prompt=system_prompt),
+            loading_message=f"Generating response with {backend_name}...",
+        )
+        console.print()
+        
+        _process_response(
+            response,
+            query,
+            ai_backend,
+            history_manager,
+            session_manager,
+            execute,
+            auto_confirm,
+            context_data,
+            is_interactive=True,
+        )
+        
+        console.print()
+        return None, False
+
+
 def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                         session_manager: SessionManager, execute: bool, auto_confirm: bool):
     """Run interactive mode for multi-turn conversations."""
@@ -791,7 +993,11 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
     render_dav_banner()
     
     console.print("[bold green]Dav Interactive Mode[/bold green]")
-    console.print("Type 'exit' or 'quit' to exit, 'clear' to clear session\n")
+    console.print("Type 'exit' or 'quit' to exit, 'clear' to clear session")
+    console.print("Use '>' prefix to execute commands, '/' for functions (/exit, /cmd, /dav, /int)\n")
+    
+    # Track current mode: "interactive" (default) or "command"
+    current_mode = "interactive"
     
     # Helper function to display context and prompt
     def display_prompt_with_context():
@@ -820,77 +1026,43 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
     while True:
         try:
             # Get user input with context display
-            query = display_prompt_with_context()
+            user_input = display_prompt_with_context()
             
-            if not query:
+            if not user_input:
                 continue
             
-            if query.lower() in ("exit", "quit", "q"):
+            # Handle legacy exit commands (for backward compatibility)
+            if user_input.lower() in ("exit", "quit", "q"):
                 break
             
-            if query.lower() == "clear":
+            # Handle legacy clear command
+            if user_input.lower() == "clear":
                 session_manager.clear_session()
                 console.print("Session cleared.\n")
                 continue
             
-            # Validate and sanitize user input in interactive mode
-            from dav.input_validator import (
-                sanitize_user_input,
-                detect_prompt_injection,
-                validate_query_length,
-            )
-            from dav.rate_limiter import check_api_rate_limit
-            
-            # Check rate limit
-            is_allowed, rate_limit_error = check_api_rate_limit()
-            if not is_allowed:
-                render_warning(rate_limit_error or "Rate limit exceeded. Please wait.")
-                continue
-            
-            # Validate query length
-            is_valid, length_error = validate_query_length(query)
-            if not is_valid:
-                render_error(length_error or "Query validation failed")
-                continue
-            
-            # Sanitize user input
-            query = sanitize_user_input(query)
-            
-            # Check for prompt injection
-            is_injection, injection_reason = detect_prompt_injection(query)
-            if is_injection:
-                render_warning(f"Potential prompt injection detected: {injection_reason}")
-                # Continue but warn user
-            
-            context_data, full_prompt, system_prompt = _build_prompt_with_context(
-                query, session_manager, execute_mode=execute, interactive_mode=True
-            )
-            
-            backend_name = ai_backend.backend.title()
-            console.print()
-            response = render_streaming_response_with_loading(
-                ai_backend.stream_response(full_prompt, system_prompt=system_prompt),
-                loading_message=f"Generating response with {backend_name}...",
-            )
-            console.print()
-            
-            _process_response(
-                response,
-                query,
+            # Route input based on prefix and mode
+            new_mode, should_exit = _route_input(
+                user_input,
+                current_mode,
                 ai_backend,
                 history_manager,
                 session_manager,
+                context_tracker,
                 execute,
                 auto_confirm,
-                context_data,
-                is_interactive=True,
             )
             
-            # Context status will be shown again before next prompt
-            console.print()
+            # Handle mode transition
+            if new_mode:
+                current_mode = new_mode
+            
+            # Handle exit
+            if should_exit:
+                break
         
         except KeyboardInterrupt:
-            console.print("\n\n[bold yellow]Interrupted. Type 'exit' to quit.[/bold yellow]\n")
+            console.print("\n\n[bold yellow]Interrupted. Type 'exit' or '/exit' to quit.[/bold yellow]\n")
         except EOFError:
             break
         except Exception as e:
