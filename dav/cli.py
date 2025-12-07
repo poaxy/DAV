@@ -961,8 +961,9 @@ def _handle_app_function(func_name: str, current_mode: str, command_outputs: Lis
         if current_mode != "command":
             render_error("'/dav' can only be used in command mode. Use '/cmd' to enter command mode first.")
             return None, False
-        render_info("Switching to Dav AI mode. Use '/cmd' to return to command mode.")
-        return "interactive", False
+        # /dav doesn't change mode - it just processes a query while staying in command mode
+        # No mode change, return None
+        return None, False
     
     elif func_name == "int":
         if current_mode == "interactive":
@@ -1042,8 +1043,8 @@ def _route_input(user_input: str, current_mode: str, ai_backend, history_manager
         # Handle the function
         new_mode, should_exit = _handle_app_function(func_name, current_mode, command_outputs)
         
-        # Special handling for /dav with additional text: switch mode and process query
-        if func_name == "dav" and remaining_text and new_mode == "interactive":
+        # Special handling for /dav with additional text: process query without changing mode
+        if func_name == "dav" and remaining_text and new_mode is None:
             # Switch mode first
             # Then process the remaining text as a query
             query = remaining_text.strip()
@@ -1052,13 +1053,13 @@ def _route_input(user_input: str, current_mode: str, ai_backend, history_manager
                 is_valid, length_error = validate_query_length(query)
                 if not is_valid:
                     render_error(length_error or "Query validation failed")
-                    return new_mode, False
+                    return None, False  # Don't change mode
                 
                 # Check rate limit
                 is_allowed, rate_limit_error = check_api_rate_limit()
                 if not is_allowed:
                     render_warning(rate_limit_error or "Rate limit exceeded. Please wait.")
-                    return new_mode, False
+                    return None, False  # Don't change mode
                 
                 # Sanitize user input
                 query = sanitize_user_input(query)
@@ -1095,6 +1096,8 @@ def _route_input(user_input: str, current_mode: str, ai_backend, history_manager
                 )
                 
                 console.print()
+                # Return None to keep current mode (command mode)
+                return None, False
         
         return new_mode, should_exit
     
