@@ -14,6 +14,7 @@ from rich.box import ROUNDED
 from rich.status import Status
 from rich.syntax import Syntax
 from rich.text import Text
+from rich.style import Style
 
 console = Console()
 
@@ -462,88 +463,122 @@ def render_streaming_response_with_loading(
     return accumulated
 
 
+def _interpolate_rgb(start_rgb: Tuple[int, int, int], end_rgb: Tuple[int, int, int], factor: float) -> Tuple[int, int, int]:
+    """
+    Interpolate between two RGB colors.
+    
+    Args:
+        start_rgb: Starting RGB color (r, g, b)
+        end_rgb: Ending RGB color (r, g, b)
+        factor: Interpolation factor (0.0 to 1.0)
+    
+    Returns:
+        Interpolated RGB color tuple
+    """
+    factor = max(0.0, min(1.0, factor))  # Clamp between 0 and 1
+    r = int(start_rgb[0] + (end_rgb[0] - start_rgb[0]) * factor)
+    g = int(start_rgb[1] + (end_rgb[1] - start_rgb[1]) * factor)
+    b = int(start_rgb[2] + (end_rgb[2] - start_rgb[2]) * factor)
+    return (r, g, b)
+
+
 def render_dav_banner() -> None:
-    """Render colorful Block ASCII art banner for Dav."""
+    """Render colorful Block ASCII art banner for Dav with smooth RGB gradients."""
     # Block ASCII art design for "DAV" with gradient colors
     # Using solid blocks (█) and checkered blocks (░, ▒, ▓) for texture
     # Color gradient: blue (D) → purple (A) → pink/orange (V)
     
-    # Define the ASCII art lines - Block ASCII style with proper letter shapes
-    # Each line represents one row of the banner (7 lines tall)
+    # Define the ASCII art lines - Much larger design (16 lines tall)
+    # Each line represents one row of the banner
     # D: vertical left + curved right, A: slanted sides + horizontal bar, V: slanted sides
+    # Using █ for solid blocks and ░ for checkered/textured blocks
+    # Format: D (12 chars) + spacing (4) + A (12 chars) + spacing (4) + V (16 chars)
     banner_lines = [
-        "███░░  ░██░░  ░█░░░",
-        "█░░█░  ░█░█░  ░█░░░",
-        "█░░█░  ░███░  ░█░░░",
-        "█░░█░  ░█░█░  ░█░░░",
-        "███░░  ░█░█░  ░░█░░",
-        "░░░░░  ░░░░░  ░░░░░",
-        "░░░░░  ░░░░░  ░░░░░",
+        "████████░░░░    ░░████░░░░░░    ░░░░██░░░░░░░░░░",
+        "██░░░░░░██░░    ░░██░░██░░░░    ░░░░██░░░░░░░░░░",
+        "██░░░░░░░░██    ░░██░░░░██░░    ░░░░██░░░░░░░░░░",
+        "██░░░░░░░░██    ░░████████░░    ░░░░██░░░░░░░░░░",
+        "██░░░░░░░░██    ░░██░░░░██░░    ░░░░██░░░░░░░░░░",
+        "██░░░░░░░░██    ░░██░░░░██░░    ░░░░██░░░░░░░░░░",
+        "██░░░░░░██░░    ░░██░░░░██░░    ░░░░██░░░░░░░░░░",
+        "████████░░░░    ░░██░░░░██░░    ░░░░██░░░░░░░░░░",
+        "░░░░░░░░░░░░    ░░░░░░░░░░░░    ░░░░░░░░░░░░░░░░",
+        "░░░░░░░░░░░░    ░░░░░░░░░░░░    ░░░░░░░░░░░░░░░░",
+        "░░░░░░░░░░░░    ░░░░░░░░░░░░    ░░░░░░░░░░░░░░░░",
+        "░░░░░░░░░░░░    ░░░░░░░░░░░░    ░░░░░░░░░░░░░░░░",
+        "░░░░░░░░░░░░    ░░░░░░░░░░░░    ░░░░░░░░░░░░░░░░",
+        "░░░░░░░░░░░░    ░░░░░░░░░░░░    ░░░░░░░░░░░░░░░░",
+        "░░░░░░░░░░░░    ░░░░░░░░░░░░    ░░░░░░░░░░░░░░░░",
+        "░░░░░░░░░░░░    ░░░░░░░░░░░░    ░░░░░░░░░░░░░░░░",
     ]
+    
+    # RGB color stops for gradient
+    # Blue (start) → Purple (middle) → Pink/Orange (end)
+    color_blue = (100, 150, 255)      # Bright blue
+    color_purple = (200, 100, 255)   # Purple
+    color_pink = (255, 150, 100)     # Pink/Orange
+    
+    # Calculate letter boundaries - D ends at char 12, A starts at 16, ends at 28, V starts at 32
+    # Based on the design: D (0-11), spacing (12-15), A (16-27), spacing (28-31), V (32-47)
+    d_end_char = 11   # Last character of D
+    a_start_char = 16  # First character of A
+    a_end_char = 27   # Last character of A
+    v_start_char = 32  # First character of V
+    
+    first_line = banner_lines[0]
+    total_width = len(first_line)
     
     # Create a Text object to build the colored banner
     banner_text = Text()
     
-    # Color definitions for gradient
-    # D region: approximately chars 0-5 (blue shades)
-    # A region: approximately chars 6-12 (purple shades, transition from blue)
-    # V region: approximately chars 13+ (pink/orange shades, transition from purple)
-    
     for line in banner_lines:
         line_text = Text()
         char_index = 0
-        total_chars = len(line)
+        line_width = len(line)
         
         for char in line:
-            # Determine color based on position (left to right gradient)
-            # Calculate approximate letter boundaries
-            d_boundary = 5  # End of D
-            a_boundary = 12  # End of A
-            
-            if char_index <= d_boundary:
-                # D region - blue shades
-                if char == '█':
-                    line_text.append(char, style="bright_blue")
-                elif char == '░':
-                    line_text.append(char, style="blue")
-                else:
-                    line_text.append(char)
-            elif char_index <= a_boundary:
-                # A region - purple shades (transition from blue to purple)
-                # Position within A region (0.0 to 1.0)
-                a_pos = (char_index - d_boundary - 1) / max(1, a_boundary - d_boundary)
-                if char == '█':
-                    if a_pos < 0.4:
-                        line_text.append(char, style="bright_blue")
-                    else:
-                        line_text.append(char, style="bright_magenta")
-                elif char == '░':
-                    if a_pos < 0.4:
-                        line_text.append(char, style="blue")
-                    else:
-                        line_text.append(char, style="magenta")
-                else:
-                    line_text.append(char)
+            # Determine which letter region we're in based on character index
+            if char_index <= d_end_char:
+                # D region - pure blue (no interpolation needed, but we can add slight variation)
+                rgb = color_blue
+            elif char_index < a_start_char:
+                # Spacing between D and A - transition from blue to blue (no change)
+                rgb = color_blue
+            elif char_index <= a_end_char:
+                # A region - transition from blue to purple
+                # Position within A region (0.0 = start of A, 1.0 = end of A)
+                a_region_pos = (char_index - a_start_char) / max(1, a_end_char - a_start_char + 1)
+                rgb = _interpolate_rgb(color_blue, color_purple, a_region_pos)
+            elif char_index < v_start_char:
+                # Spacing between A and V - use purple
+                rgb = color_purple
             else:
-                # V region - pink/orange shades (transition from purple to pink/orange)
-                # Position within V region (0.0 to 1.0)
-                v_pos = (char_index - a_boundary - 1) / max(1, total_chars - a_boundary)
-                if char == '█':
-                    if v_pos < 0.4:
-                        line_text.append(char, style="bright_magenta")
-                    elif v_pos < 0.7:
-                        line_text.append(char, style="bright_red")
-                    else:
-                        line_text.append(char, style="yellow")
-                elif char == '░':
-                    if v_pos < 0.4:
-                        line_text.append(char, style="magenta")
-                    elif v_pos < 0.7:
-                        line_text.append(char, style="red")
-                    else:
-                        line_text.append(char, style="yellow")
-                else:
-                    line_text.append(char)
+                # V region - transition from purple to pink/orange
+                # Position within V region (0.0 = start of V, 1.0 = end of V)
+                v_region_pos = (char_index - v_start_char) / max(1, line_width - v_start_char)
+                rgb = _interpolate_rgb(color_purple, color_pink, v_region_pos)
+            
+            # Create style with RGB color
+            # Use slightly dimmer color for checkered blocks
+            if char == '░':
+                # Dim the color for checkered blocks (reduce brightness by 30%)
+                dimmed_rgb = (
+                    int(rgb[0] * 0.7),
+                    int(rgb[1] * 0.7),
+                    int(rgb[2] * 0.7)
+                )
+                style = Style(color=f"rgb({dimmed_rgb[0]},{dimmed_rgb[1]},{dimmed_rgb[2]})")
+            elif char == '█':
+                # Full brightness for solid blocks
+                style = Style(color=f"rgb({rgb[0]},{rgb[1]},{rgb[2]})")
+            else:
+                # No style for spaces
+                style = None
+            
+            if style:
+                line_text.append(char, style=style)
+            else:
+                line_text.append(char)
             
             char_index += 1
         
