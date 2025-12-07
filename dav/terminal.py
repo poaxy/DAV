@@ -482,6 +482,51 @@ def _interpolate_rgb(start_rgb: Tuple[int, int, int], end_rgb: Tuple[int, int, i
     return (r, g, b)
 
 
+def _get_rainbow_color(position: float) -> Tuple[int, int, int]:
+    """
+    Get a rainbow color based on position (0.0 to 1.0).
+    Creates a smooth gradient through the full rainbow spectrum.
+    
+    Args:
+        position: Position in gradient (0.0 = start/blue, 1.0 = end/pink)
+    
+    Returns:
+        RGB color tuple
+    """
+    position = max(0.0, min(1.0, position))  # Clamp between 0 and 1
+    
+    # Define rainbow color stops (full spectrum)
+    # Blue → Cyan → Green → Yellow → Orange → Red → Magenta → Pink
+    color_stops = [
+        (100, 150, 255),   # Blue (start)
+        (100, 255, 255),   # Cyan
+        (100, 255, 150),   # Green
+        (255, 255, 100),   # Yellow
+        (255, 200, 100),   # Orange
+        (255, 100, 100),   # Red
+        (255, 100, 200),   # Magenta
+        (255, 150, 100),   # Pink/Orange (end)
+    ]
+    
+    # Map position to color stops
+    num_stops = len(color_stops)
+    segment_size = 1.0 / (num_stops - 1)
+    
+    # Find which segment we're in
+    segment_index = int(position / segment_size)
+    segment_index = min(segment_index, num_stops - 2)  # Don't go past last segment
+    
+    # Calculate position within the segment
+    segment_start = segment_index * segment_size
+    segment_pos = (position - segment_start) / segment_size
+    
+    # Interpolate between the two color stops
+    start_color = color_stops[segment_index]
+    end_color = color_stops[segment_index + 1]
+    
+    return _interpolate_rgb(start_color, end_color, segment_pos)
+
+
 def render_dav_banner() -> None:
     """Render colorful ASCII art banner for Dav with smooth RGB gradients."""
     # ASCII art design for "DAV" with gradient colors
@@ -507,35 +552,11 @@ def render_dav_banner() -> None:
         "",
     ]
     
-    # RGB color stops for gradient
-    # Blue (start) → Purple (middle) → Pink/Orange (end)
-    color_blue = (100, 150, 255)      # Bright blue
-    color_purple = (200, 100, 255)   # Purple
-    color_pink = (255, 150, 100)     # Pink/Orange
-    
-    # Calculate letter boundaries by analyzing the design
-    # Looking at the ASCII art, D appears to be on the left, A in the middle, V on the right
-    # Need to find the actual boundaries by examining non-empty lines
-    first_content_line = None
+    # Find the maximum width to determine gradient span
+    max_width = 0
     for line in banner_lines:
-        if line.strip():
-            first_content_line = line
-            break
-    
-    if first_content_line is None:
-        # Fallback if no content found
-        first_content_line = banner_lines[2] if len(banner_lines) > 2 else ""
-    
-    total_width = len(first_content_line)
-    
-    # Analyze the design to find letter boundaries
-    # D region: approximately chars 4-12 (",---," pattern)
-    # A region: approximately chars 20-30 ("'  .' \\" pattern)  
-    # V region: approximately chars 40+ (",---." pattern)
-    d_end_char = 12   # End of D (after ",---,")
-    a_start_char = 20  # Start of A
-    a_end_char = 30   # End of A
-    v_start_char = 40  # Start of V
+        if len(line) > max_width:
+            max_width = len(line)
     
     # Create a Text object to build the colored banner
     banner_text = Text()
@@ -546,26 +567,13 @@ def render_dav_banner() -> None:
         line_width = len(line)
         
         for char in line:
-            # Determine which letter region we're in based on character index
-            if char_index <= d_end_char:
-                # D region - pure blue (no interpolation needed, but we can add slight variation)
-                rgb = color_blue
-            elif char_index < a_start_char:
-                # Spacing between D and A - transition from blue to blue (no change)
-                rgb = color_blue
-            elif char_index <= a_end_char:
-                # A region - transition from blue to purple
-                # Position within A region (0.0 = start of A, 1.0 = end of A)
-                a_region_pos = (char_index - a_start_char) / max(1, a_end_char - a_start_char + 1)
-                rgb = _interpolate_rgb(color_blue, color_purple, a_region_pos)
-            elif char_index < v_start_char:
-                # Spacing between A and V - use purple
-                rgb = color_purple
-            else:
-                # V region - transition from purple to pink/orange
-                # Position within V region (0.0 = start of V, 1.0 = end of V)
-                v_region_pos = (char_index - v_start_char) / max(1, line_width - v_start_char)
-                rgb = _interpolate_rgb(color_purple, color_pink, v_region_pos)
+            # Calculate position as fraction of total width (0.0 to 1.0)
+            # Use max_width to ensure consistent gradient across all lines
+            position = char_index / max(1, max_width - 1)
+            
+            # Get rainbow color based on position
+            # This creates a smooth gradient across the entire banner width
+            rgb = _get_rainbow_color(position)
             
             # Create style with RGB color
             # Apply color to all non-space characters
