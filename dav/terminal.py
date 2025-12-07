@@ -461,3 +461,96 @@ def render_streaming_response_with_loading(
     # Return original (unfiltered) for command extraction, but display was filtered
     return accumulated
 
+
+def render_dav_banner() -> None:
+    """Render colorful Block ASCII art banner for Dav."""
+    # Block ASCII art design for "DAV" with gradient colors
+    # Using solid blocks (█) and checkered blocks (░, ▒, ▓) for texture
+    # Color gradient: blue (D) → purple (A) → pink/orange (V)
+    
+    # Define the ASCII art lines - Block ASCII style with proper letter shapes
+    # Each line represents one row of the banner (7 lines tall)
+    # D: vertical left + curved right, A: slanted sides + horizontal bar, V: slanted sides
+    banner_lines = [
+        "███░░  ░██░░  ░█░░░",
+        "█░░█░  ░█░█░  ░█░░░",
+        "█░░█░  ░███░  ░█░░░",
+        "█░░█░  ░█░█░  ░█░░░",
+        "███░░  ░█░█░  ░░█░░",
+        "░░░░░  ░░░░░  ░░░░░",
+        "░░░░░  ░░░░░  ░░░░░",
+    ]
+    
+    # Create a Text object to build the colored banner
+    banner_text = Text()
+    
+    # Color definitions for gradient
+    # D region: approximately chars 0-5 (blue shades)
+    # A region: approximately chars 6-12 (purple shades, transition from blue)
+    # V region: approximately chars 13+ (pink/orange shades, transition from purple)
+    
+    for line in banner_lines:
+        line_text = Text()
+        char_index = 0
+        total_chars = len(line)
+        
+        for char in line:
+            # Determine color based on position (left to right gradient)
+            # Calculate approximate letter boundaries
+            d_boundary = 5  # End of D
+            a_boundary = 12  # End of A
+            
+            if char_index <= d_boundary:
+                # D region - blue shades
+                if char == '█':
+                    line_text.append(char, style="bright_blue")
+                elif char == '░':
+                    line_text.append(char, style="blue")
+                else:
+                    line_text.append(char)
+            elif char_index <= a_boundary:
+                # A region - purple shades (transition from blue to purple)
+                # Position within A region (0.0 to 1.0)
+                a_pos = (char_index - d_boundary - 1) / max(1, a_boundary - d_boundary)
+                if char == '█':
+                    if a_pos < 0.4:
+                        line_text.append(char, style="bright_blue")
+                    else:
+                        line_text.append(char, style="bright_magenta")
+                elif char == '░':
+                    if a_pos < 0.4:
+                        line_text.append(char, style="blue")
+                    else:
+                        line_text.append(char, style="magenta")
+                else:
+                    line_text.append(char)
+            else:
+                # V region - pink/orange shades (transition from purple to pink/orange)
+                # Position within V region (0.0 to 1.0)
+                v_pos = (char_index - a_boundary - 1) / max(1, total_chars - a_boundary)
+                if char == '█':
+                    if v_pos < 0.4:
+                        line_text.append(char, style="bright_magenta")
+                    elif v_pos < 0.7:
+                        line_text.append(char, style="bright_red")
+                    else:
+                        line_text.append(char, style="yellow")
+                elif char == '░':
+                    if v_pos < 0.4:
+                        line_text.append(char, style="magenta")
+                    elif v_pos < 0.7:
+                        line_text.append(char, style="red")
+                    else:
+                        line_text.append(char, style="yellow")
+                else:
+                    line_text.append(char)
+            
+            char_index += 1
+        
+        banner_text.append(line_text)
+        banner_text.append("\n")
+    
+    # Print the banner
+    console.print(banner_text)
+    console.print()  # Extra blank line for spacing
+

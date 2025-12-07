@@ -777,12 +777,15 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                         session_manager: SessionManager, execute: bool, auto_confirm: bool):
     """Run interactive mode for multi-turn conversations."""
     # Import here to avoid loading heavy modules for fast commands
-    from dav.terminal import render_error, render_streaming_response_with_loading, render_context_status, render_warning
+    from dav.terminal import render_error, render_streaming_response_with_loading, render_context_status, render_warning, render_dav_banner
     from dav.context_tracker import ContextTracker
     from dav.context import format_context_for_prompt, build_context
     
     # Initialize context tracker
     context_tracker = ContextTracker(backend=ai_backend.backend, model=ai_backend.model)
+    
+    # Display ASCII art banner
+    render_dav_banner()
     
     console.print("[bold green]Dav Interactive Mode[/bold green]")
     console.print("Type 'exit' or 'quit' to exit, 'clear' to clear session\n")
