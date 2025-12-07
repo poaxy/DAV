@@ -800,6 +800,36 @@ def _truncate_output(output: str, max_lines: int = 2000, keep_lines: int = 1000)
     return f"[... {len(lines) - keep_lines} lines truncated ...]\n{truncated}"
 
 
+def _store_command_output(command: str, stdout: str, stderr: str, success: bool, 
+                          command_outputs: List[Dict[str, Any]]) -> None:
+    """
+    Store command output in the command_outputs list, maintaining max 20 commands.
+    
+    Args:
+        command: Command string that was executed
+        stdout: Standard output
+        stderr: Standard error
+        success: Whether command succeeded
+        command_outputs: List to store command outputs
+    """
+    import time
+    
+    truncated_stdout = _truncate_output(stdout)
+    truncated_stderr = _truncate_output(stderr)
+    
+    command_outputs.append({
+        "command": command,
+        "stdout": truncated_stdout,
+        "stderr": truncated_stderr,
+        "success": success,
+        "timestamp": time.time()
+    })
+    
+    # Keep only last 20 commands
+    if len(command_outputs) > 20:
+        command_outputs.pop(0)
+
+
 def _handle_command_execution(command: str, command_outputs: List[Dict[str, Any]]) -> bool:
     """
     Execute a shell command and handle directory changes.
@@ -812,9 +842,8 @@ def _handle_command_execution(command: str, command_outputs: List[Dict[str, Any]
         True if command executed successfully, False otherwise
     """
     import os
-    import time
     from dav.executor import execute_command
-    from dav.terminal import render_error, render_info
+    from dav.terminal import render_error
     
     command = command.strip()
     if not command:
@@ -833,53 +862,22 @@ def _handle_command_execution(command: str, command_outputs: List[Dict[str, Any]
         
         try:
             os.chdir(target_dir)
-            # Store cd command output (no stdout/stderr, but record the command)
-            command_outputs.append({
-                "command": command,
-                "stdout": "",
-                "stderr": "",
-                "success": True,
-                "timestamp": time.time()
-            })
-            # Keep only last 20 commands
-            if len(command_outputs) > 20:
-                command_outputs.pop(0)
+            _store_command_output(command, "", "", True, command_outputs)
             return True
         except FileNotFoundError:
-            render_error(f"Directory not found: {target_dir}")
-            command_outputs.append({
-                "command": command,
-                "stdout": "",
-                "stderr": f"Directory not found: {target_dir}",
-                "success": False,
-                "timestamp": time.time()
-            })
-            if len(command_outputs) > 20:
-                command_outputs.pop(0)
+            error_msg = f"Directory not found: {target_dir}"
+            render_error(error_msg)
+            _store_command_output(command, "", error_msg, False, command_outputs)
             return False
         except PermissionError:
-            render_error(f"Permission denied: {target_dir}")
-            command_outputs.append({
-                "command": command,
-                "stdout": "",
-                "stderr": f"Permission denied: {target_dir}",
-                "success": False,
-                "timestamp": time.time()
-            })
-            if len(command_outputs) > 20:
-                command_outputs.pop(0)
+            error_msg = f"Permission denied: {target_dir}"
+            render_error(error_msg)
+            _store_command_output(command, "", error_msg, False, command_outputs)
             return False
         except Exception as e:
-            render_error(f"Error changing directory: {str(e)}")
-            command_outputs.append({
-                "command": command,
-                "stdout": "",
-                "stderr": f"Error changing directory: {str(e)}",
-                "success": False,
-                "timestamp": time.time()
-            })
-            if len(command_outputs) > 20:
-                command_outputs.pop(0)
+            error_msg = f"Error changing directory: {str(e)}"
+            render_error(error_msg)
+            _store_command_output(command, "", error_msg, False, command_outputs)
             return False
     
     # Execute other commands using executor
@@ -891,35 +889,79 @@ def _handle_command_execution(command: str, command_outputs: List[Dict[str, Any]
             automation_mode=False,
         )
         
-        # Store output (truncate if needed)
-        truncated_stdout = _truncate_output(stdout)
-        truncated_stderr = _truncate_output(stderr)
-        
-        command_outputs.append({
-            "command": command,
-            "stdout": truncated_stdout,
-            "stderr": truncated_stderr,
-            "success": success,
-            "timestamp": time.time()
-        })
-        
-        # Keep only last 20 commands
-        if len(command_outputs) > 20:
-            command_outputs.pop(0)
-        
+        _store_command_output(command, stdout, stderr, success, command_outputs)
         return success
     except Exception as e:
-        render_error(f"Error executing command: {str(e)}")
-        command_outputs.append({
-            "command": command,
-            "stdout": "",
-            "stderr": f"Error executing command: {str(e)}",
-            "success": False,
-            "timestamp": time.time()
-        })
-        if len(command_outputs) > 20:
-            command_outputs.pop(0)
+        error_msg = f"Error executing command: {str(e)}"
+        render_error(error_msg)
+        _store_command_output(command, "", error_msg, False, command_outputs)
         return False
+
+
+def _process_query_with_ai(query: str, ai_backend, history_manager, session_manager, 
+                           execute: bool, auto_confirm: bool, command_outputs: List[Dict[str, Any]]) -> None:
+    """
+    Process a query with the AI backend (validation, sanitization, and response).
+    
+    Args:
+        query: User query string
+        ai_backend: AI backend instance
+        history_manager: History manager instance
+        session_manager: Session manager instance
+        execute: Execute mode flag
+        auto_confirm: Auto confirm flag
+        command_outputs: List of command outputs for Dav context
+    """
+    from dav.terminal import render_error, render_warning, render_streaming_response_with_loading
+    from dav.input_validator import sanitize_user_input, detect_prompt_injection, validate_query_length
+    from dav.rate_limiter import check_api_rate_limit
+    
+    # Validate query length
+    is_valid, length_error = validate_query_length(query)
+    if not is_valid:
+        render_error(length_error or "Query validation failed")
+        return
+    
+    # Check rate limit
+    is_allowed, rate_limit_error = check_api_rate_limit()
+    if not is_allowed:
+        render_warning(rate_limit_error or "Rate limit exceeded. Please wait.")
+        return
+    
+    # Sanitize user input
+    query = sanitize_user_input(query)
+    
+    # Check for prompt injection
+    is_injection, injection_reason = detect_prompt_injection(query)
+    if is_injection:
+        render_warning(f"Potential prompt injection detected: {injection_reason}")
+    
+    # Process with AI
+    context_data, full_prompt, system_prompt = _build_prompt_with_context(
+        query, session_manager, execute_mode=execute, interactive_mode=True, command_outputs=command_outputs
+    )
+    
+    backend_name = ai_backend.backend.title()
+    console.print()
+    response = render_streaming_response_with_loading(
+        ai_backend.stream_response(full_prompt, system_prompt=system_prompt),
+        loading_message=f"Generating response with {backend_name}...",
+    )
+    console.print()
+    
+    _process_response(
+        response,
+        query,
+        ai_backend,
+        history_manager,
+        session_manager,
+        execute,
+        auto_confirm,
+        context_data,
+        is_interactive=True,
+    )
+    
+    console.print()
 
 
 def _handle_app_function(func_name: str, current_mode: str, command_outputs: List[Dict[str, Any]]) -> Tuple[Optional[str], bool]:
@@ -994,7 +1036,7 @@ def _handle_app_function(func_name: str, current_mode: str, command_outputs: Lis
 
 
 def _route_input(user_input: str, current_mode: str, ai_backend, history_manager, session_manager, 
-                 context_tracker, execute, auto_confirm, command_outputs: List[Dict[str, Any]]) -> Tuple[Optional[str], bool]:
+                 execute: bool, auto_confirm: bool, command_outputs: List[Dict[str, Any]]) -> Tuple[Optional[str], bool]:
     """
     Route user input based on prefix and current mode.
     
@@ -1004,7 +1046,6 @@ def _route_input(user_input: str, current_mode: str, ai_backend, history_manager
         ai_backend: AI backend instance
         history_manager: History manager instance
         session_manager: Session manager instance
-        context_tracker: Context tracker instance
         execute: Execute mode flag
         auto_confirm: Auto confirm flag
         command_outputs: List of command outputs for Dav context
@@ -1014,10 +1055,7 @@ def _route_input(user_input: str, current_mode: str, ai_backend, history_manager
         - new_mode: New mode to switch to, or None if no change
         - should_exit: True if should exit interactive mode
     """
-    from dav.terminal import render_error, render_warning
-    from dav.input_validator import sanitize_user_input, detect_prompt_injection, validate_query_length
-    from dav.rate_limiter import check_api_rate_limit
-    from dav.context import format_context_for_prompt, build_context
+    from dav.terminal import render_warning
     
     if not user_input:
         return None, False
@@ -1045,59 +1083,14 @@ def _route_input(user_input: str, current_mode: str, ai_backend, history_manager
         
         # Special handling for /dav with additional text: process query without changing mode
         if func_name == "dav" and remaining_text and new_mode is None:
-            # Switch mode first
-            # Then process the remaining text as a query
             query = remaining_text.strip()
             if query:
-                # Validate and sanitize user input
-                is_valid, length_error = validate_query_length(query)
-                if not is_valid:
-                    render_error(length_error or "Query validation failed")
-                    return None, False  # Don't change mode
-                
-                # Check rate limit
-                is_allowed, rate_limit_error = check_api_rate_limit()
-                if not is_allowed:
-                    render_warning(rate_limit_error or "Rate limit exceeded. Please wait.")
-                    return None, False  # Don't change mode
-                
-                # Sanitize user input
-                query = sanitize_user_input(query)
-                
-                # Check for prompt injection
-                is_injection, injection_reason = detect_prompt_injection(query)
-                if is_injection:
-                    render_warning(f"Potential prompt injection detected: {injection_reason}")
-                
-                # Process with AI
-                from dav.terminal import render_streaming_response_with_loading
-                context_data, full_prompt, system_prompt = _build_prompt_with_context(
-                    query, session_manager, execute_mode=execute, interactive_mode=True, command_outputs=command_outputs
+                _process_query_with_ai(
+                    query, ai_backend, history_manager, session_manager,
+                    execute, auto_confirm, command_outputs
                 )
-                
-                backend_name = ai_backend.backend.title()
-                console.print()
-                response = render_streaming_response_with_loading(
-                    ai_backend.stream_response(full_prompt, system_prompt=system_prompt),
-                    loading_message=f"Generating response with {backend_name}...",
-                )
-                console.print()
-                
-                _process_response(
-                    response,
-                    query,
-                    ai_backend,
-                    history_manager,
-                    session_manager,
-                    execute,
-                    auto_confirm,
-                    context_data,
-                    is_interactive=True,
-                )
-                
-                console.print()
-                # Return None to keep current mode (command mode)
-                return None, False
+            # Return None to keep current mode (command mode)
+            return None, False
         
         return new_mode, should_exit
     
@@ -1108,53 +1101,10 @@ def _route_input(user_input: str, current_mode: str, ai_backend, history_manager
         return None, False
     else:
         # In interactive mode, send to AI
-        # Validate and sanitize user input
-        is_valid, length_error = validate_query_length(user_input)
-        if not is_valid:
-            render_error(length_error or "Query validation failed")
-            return None, False
-        
-        # Check rate limit
-        is_allowed, rate_limit_error = check_api_rate_limit()
-        if not is_allowed:
-            render_warning(rate_limit_error or "Rate limit exceeded. Please wait.")
-            return None, False
-        
-        # Sanitize user input
-        query = sanitize_user_input(user_input)
-        
-        # Check for prompt injection
-        is_injection, injection_reason = detect_prompt_injection(query)
-        if is_injection:
-            render_warning(f"Potential prompt injection detected: {injection_reason}")
-        
-        # Process with AI
-        from dav.terminal import render_streaming_response_with_loading
-        context_data, full_prompt, system_prompt = _build_prompt_with_context(
-            query, session_manager, execute_mode=execute, interactive_mode=True, command_outputs=command_outputs
+        _process_query_with_ai(
+            user_input, ai_backend, history_manager, session_manager,
+            execute, auto_confirm, command_outputs
         )
-        
-        backend_name = ai_backend.backend.title()
-        console.print()
-        response = render_streaming_response_with_loading(
-            ai_backend.stream_response(full_prompt, system_prompt=system_prompt),
-            loading_message=f"Generating response with {backend_name}...",
-        )
-        console.print()
-        
-        _process_response(
-            response,
-            query,
-            ai_backend,
-            history_manager,
-            session_manager,
-            execute,
-            auto_confirm,
-            context_data,
-            is_interactive=True,
-        )
-        
-        console.print()
         return None, False
 
 
@@ -1234,7 +1184,6 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                 ai_backend,
                 history_manager,
                 session_manager,
-                context_tracker,
                 execute,
                 auto_confirm,
                 command_outputs,
