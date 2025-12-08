@@ -4,6 +4,8 @@ import re
 import sys
 import threading
 import time
+import termios
+import tty
 from typing import Any, ContextManager, Iterator, Optional, Tuple
 
 from rich.console import Console
@@ -290,30 +292,175 @@ def render_command(command: str) -> None:
     console.print(Panel(syntax, border_style="cyan", title="Command"))
 
 
-def confirm_action(message: str) -> bool:
-    """Confirm an action with the user."""
-    prompt = f"{message} (y/N): "
-    response = ""
+def _get_raw_char(fd: int) -> str:
+    """
+    Read a single character from file descriptor in raw mode.
+    
+    Args:
+        fd: File descriptor to read from
+    
+    Returns:
+        Single character string
+    """
+    return sys.stdin.read(1)
 
+
+def _get_arrow_key(fd: int) -> Optional[str]:
+    """
+    Detect arrow key presses from ANSI escape sequences.
+    
+    Called after ESC character (\x1b) has been detected.
+    Expects the next characters to be '[' followed by A/B/C/D.
+    
+    Args:
+        fd: File descriptor to read from
+    
+    Returns:
+        'up', 'down', 'left', 'right', or None if not an arrow key
+    """
+    # Arrow keys send escape sequence: \x1b[A (up), \x1b[B (down), etc.
+    # ESC has already been read, so we expect '[' next
+    second_char = _get_raw_char(fd)
+    if second_char != '[':
+        return None
+    
+    third_char = _get_raw_char(fd)
+    arrow_map = {
+        'A': 'up',
+        'B': 'down',
+        'C': 'right',
+        'D': 'left',
+    }
+    return arrow_map.get(third_char)
+
+
+def _display_confirmation_menu(message: str, selected: int = 0, is_first: bool = False) -> None:
+    """
+    Display confirmation menu with Allow and Deny options.
+    
+    Args:
+        message: Confirmation message to display
+        selected: Which option is selected (0 = Allow, 1 = Deny)
+        is_first: Whether this is the first display (True) or an update (False)
+    """
+    if is_first:
+        # First display - just show the menu
+        sys.stdout.write(f"{message}?\n")
+    else:
+        # Update display - clear previous lines and redraw
+        # Move up 2 lines (past the options) and clear
+        sys.stdout.write('\033[2A')  # Move up 2 lines
+        sys.stdout.write('\r\033[K')  # Clear current line (message line)
+        sys.stdout.write('\033[1B\r\033[K')  # Move down, clear option 1
+        sys.stdout.write('\033[1B\r\033[K')  # Move down, clear option 2
+        sys.stdout.write('\033[2A')  # Move back up to message line
+        sys.stdout.write(f"{message}?\n")
+    
+    # Display options with highlighting
+    if selected == 0:
+        # Allow is selected
+        sys.stdout.write("  \033[1;32m▶ Allow\033[0m\n")  # Bold green
+        sys.stdout.write("  \033[31m  Deny\033[0m\n")  # Red
+    else:
+        # Deny is selected
+        sys.stdout.write("  \033[32m  Allow\033[0m\n")  # Green
+        sys.stdout.write("  \033[1;31m▶ Deny\033[0m\n")  # Bold red
+    
+    # Move cursor up 2 lines to be ready for next input
+    sys.stdout.write('\033[2A')
+    sys.stdout.flush()
+
+
+def confirm_action(message: str) -> bool:
+    """
+    Confirm an action with the user using arrow key navigation.
+    
+    Displays "Allow" (green) and "Deny" (red) options that can be navigated
+    with arrow keys. Press Enter to confirm selection.
+    
+    Args:
+        message: Confirmation message to display
+    
+    Returns:
+        True if "Allow" selected, False if "Deny" selected or cancelled
+    """
+    # Check if we're in a TTY environment
+    if not sys.stdin.isatty():
+        # Fall back to /dev/tty for piped input scenarios
+        try:
+            with open("/dev/tty", "r+") as tty_file:
+                tty_file.write(f"{message} (y/N): ")
+                tty_file.flush()
+                response = tty_file.readline().strip().lower()
+                return response in ("y", "yes")
+        except OSError:
+            console.print("[yellow]No TTY available for confirmation. Skipping execution (use --yes to auto-confirm).[/yellow]")
+            return False
+    
+    # Try to use arrow key navigation
     try:
-        if sys.stdin.isatty():
-            response = input(prompt)
-        else:
-            # Attempt to prompt using /dev/tty when stdin is not interactive (e.g. piped input)
-            try:
-                with open("/dev/tty", "r+") as tty:
-                    tty.write(prompt)
-                    tty.flush()
-                    response = tty.readline()
-            except OSError:
-                console.print("[yellow]No TTY available for confirmation. Skipping execution (use --yes to auto-confirm).[/yellow]")
-                return False
-    except EOFError:
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        
+        try:
+            # Set terminal to raw mode
+            tty.setraw(fd)
+            
+            selected = 0  # 0 = Allow, 1 = Deny
+            _display_confirmation_menu(message, selected, is_first=True)
+            
+            while True:
+                char = _get_raw_char(fd)
+                
+                # Check for arrow keys
+                if char == '\x1b':  # ESC sequence
+                    arrow = _get_arrow_key(fd)
+                    if arrow in ('up', 'down', 'left', 'right'):
+                        # Toggle selection
+                        selected = 1 - selected
+                        _display_confirmation_menu(message, selected, is_first=False)
+                        continue
+                
+                # Check for Enter key (CR or LF)
+                if char in ('\r', '\n'):
+                    # Clear the menu - move to beginning and clear lines
+                    sys.stdout.write('\r')  # Return to start of line
+                    sys.stdout.write('\033[2B')  # Move down 2 lines (past the menu)
+                    sys.stdout.write('\r\033[K')  # Clear current line
+                    sys.stdout.flush()
+                    
+                    # Restore terminal settings before returning
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                    return selected == 0  # True for Allow, False for Deny
+                
+                # Check for Ctrl+C
+                if char == '\x03':  # Ctrl+C
+                    # Clear the menu and move to next line
+                    sys.stdout.write('\r')  # Return to start of line
+                    sys.stdout.write('\033[2B')  # Move down 2 lines
+                    sys.stdout.write('\r\033[K\n')  # Clear and newline
+                    sys.stdout.flush()
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                    return False
+                
+                # Ignore other characters
+                
+        finally:
+            # Always restore terminal settings
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    
+    except (termios.error, OSError, AttributeError):
+        # Fall back to simple y/N prompt if raw mode fails
+        try:
+            prompt = f"{message} (y/N): "
+            response = input(prompt).strip().lower()
+            return response in ("y", "yes")
+        except (EOFError, KeyboardInterrupt):
+            console.print("[yellow]No input received. Skipping execution (use --yes to auto-confirm).[/yellow]")
+            return False
+    except (EOFError, KeyboardInterrupt):
         console.print("[yellow]No input received. Skipping execution (use --yes to auto-confirm).[/yellow]")
         return False
-
-    response = response.strip().lower()
-    return response in ("y", "yes")
 
 
 def show_loading_status(message: str = "Processing...") -> ContextManager[Status]:
