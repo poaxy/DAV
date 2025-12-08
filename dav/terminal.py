@@ -7,6 +7,7 @@ import time
 from typing import Any, ContextManager, Iterator, Optional, Tuple
 
 import questionary
+from prompt_toolkit.formatted_text import FormattedText
 
 from rich.console import Console
 from rich.live import Live
@@ -320,22 +321,33 @@ def confirm_action(message: str) -> bool:
     
     # Use questionary for interactive menu
     try:
-        # Custom style: green for selected/highlighted options
-        # Note: questionary applies styling to prompt elements, not individual choices
-        # The green color will apply to the selected/highlighted option
+        # Create colored choices: Allow in green, Deny in red
+        # Use FormattedText to apply colors to individual choices
+        allow_choice = questionary.Choice(
+            title=FormattedText([('fg:#00ff00 bold', 'Allow')]),
+            value='Allow'
+        )
+        deny_choice = questionary.Choice(
+            title=FormattedText([('fg:#ff0000 bold', 'Deny')]),
+            value='Deny'
+        )
+        
+        # Custom style: neutral pointer, but choices maintain their colors
+        # The highlighted style will be applied as an overlay, so we use a neutral color
+        # that won't override the choice colors too much
         custom_style = questionary.Style([
             ('qmark', 'fg:#00ff00 bold'),         # Green question mark
-            ('question', 'bold'),                  # Bold question text
-            ('answer', 'fg:#00ff00 bold'),         # Green for submitted answer
-            ('pointer', 'fg:#00ff00 bold'),       # Green pointer indicator
-            ('highlighted', 'fg:#00ff00 bold'),    # Green for highlighted choice
-            ('selected', 'fg:#00ff00'),           # Green for selected item
+            ('question', 'bold'),                 # Bold question text
+            ('answer', 'bold'),                   # Bold for submitted answer (keeps choice color)
+            ('pointer', 'fg:#00ff00'),            # Green pointer indicator
+            ('highlighted', 'bold'),              # Bold when highlighted (preserves choice color)
+            ('selected', 'bold'),                 # Bold when selected (preserves choice color)
         ])
         
         result = questionary.select(
             message,
-            choices=["Allow", "Deny"],
-            default="Allow",
+            choices=[allow_choice, deny_choice],
+            default='Allow',
             style=custom_style,
         ).ask()
         
