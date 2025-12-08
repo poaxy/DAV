@@ -345,40 +345,61 @@ def _display_confirmation_menu(message: str, selected: int = 0, is_first: bool =
     """
     if is_first:
         # First display - ensure we're on a fresh line after Rich output
-        # Rich's console.print might leave cursor in middle of line, so:
-        # 1. Go to start of current line (\r)
-        # 2. Move to new line (\n) 
-        # 3. Go to start of that line (\r) to ensure column 0
         sys.stdout.write('\r\n\r')  # Reset to column 0, newline, reset to column 0
         sys.stdout.flush()  # Ensure Rich's output is flushed first
         # Write message starting from column 0
         sys.stdout.write(f"{message}?\n")
     
     if not is_first:
-        # Update display - move up 2 lines to clear the option lines
-        sys.stdout.write('\033[2A')  # Move up 2 lines (to first option line)
+        # Update display - restore to saved position (first option line)
+        sys.stdout.write('\033[u')  # Restore to saved position (first option line, column 0)
+        # Clear both option lines completely
+        sys.stdout.write('\r\033[K')  # Clear first option line
+        sys.stdout.write('\033[1B\r\033[K')  # Move down, clear second option line
+        sys.stdout.write('\033[1A')  # Move back up to first option line
     
     # Display options - always write from start of line
     # Use ASCII-only characters for perfect alignment
     # Format: "  [indicator] [text]" where indicator is > (selected) or space (not selected)
     # Both use same width: 2 spaces + 1 char + 1 space = 4 chars total before text
     if selected == 0:
-        # Allow is selected: "  > Allow" (2 spaces + > + space + text)
+        # Allow is selected: "  > Allow" (9 display chars: 2 spaces + > + space + Allow)
         sys.stdout.write('\r\033[K')  # Go to start of line and clear
         sys.stdout.write("  \033[1;32m>\033[0m \033[1;32mAllow\033[0m\n")
-        # Deny not selected: "    Deny" (4 spaces + text) - aligned to same column
+        # Deny not selected: "    Deny" (8 display chars: 4 spaces + Deny) - aligned to same column
         sys.stdout.write('\r\033[K')  # Go to start of next line and clear
         sys.stdout.write("    \033[31mDeny\033[0m\n")
+        # Position cursor one space after "Allow" (on first line)
+        sys.stdout.write('\033[1A')  # Move up 1 line to Allow line
+        sys.stdout.write('\r')  # Go to start of line
+        sys.stdout.write('\033[10C')  # Move right 10 columns (after "  > Allow " = 9 chars + 1 space)
     else:
-        # Allow not selected: "    Allow" (4 spaces + text) - aligned to same column
+        # Allow not selected: "    Allow" (9 display chars: 4 spaces + Allow) - aligned to same column
         sys.stdout.write('\r\033[K')  # Go to start of line and clear
         sys.stdout.write("    \033[32mAllow\033[0m\n")
-        # Deny is selected: "  > Deny" (2 spaces + > + space + text)
+        # Deny is selected: "  > Deny" (8 display chars: 2 spaces + > + space + Deny)
         sys.stdout.write('\r\033[K')  # Go to start of next line and clear
         sys.stdout.write("  \033[1;31m>\033[0m \033[1;31mDeny\033[0m\n")
+        # Position cursor one space after "Deny" (on second line, we're already there)
+        sys.stdout.write('\r')  # Go to start of Deny line
+        sys.stdout.write('\033[9C')  # Move right 9 columns (after "  > Deny " = 8 chars + 1 space)
     
-    # Move cursor up 2 lines to be ready for next input (at first option line)
-    sys.stdout.write('\033[2A')
+    # Save cursor position at first option line for future updates (only after first display)
+    if is_first:
+        # After writing both options, we're on the line after Deny
+        # Move up 2 lines to get to Allow line, then save position
+        sys.stdout.write('\033[2A')  # Move up 2 lines to first option (Allow) line
+        sys.stdout.write('\r')  # Go to start of line
+        sys.stdout.write('\033[s')  # Save cursor position (at first option line, column 0)
+        # Reposition cursor one space after selected option text
+        if selected == 0:
+            sys.stdout.write('\033[10C')  # Move right 10 columns (after "  > Allow ")
+        else:
+            # Selected is Deny, need to move down to Deny line
+            sys.stdout.write('\033[1B')  # Move down 1 line to Deny line
+            sys.stdout.write('\r')  # Go to start of Deny line
+            sys.stdout.write('\033[9C')  # Move right 9 columns (after "  > Deny ")
+    
     sys.stdout.flush()
 
 
