@@ -341,9 +341,9 @@ def _display_confirmation_menu(message: str, selected: int = 0, is_first: bool =
     """
     Display confirmation menu with Allow and Deny options.
     
-    Uses raw ANSI escape sequences for precise cursor control. On first display,
-    saves cursor position at the first option line for future updates. Updates
-    restore to saved position, clear both lines, and redraw with new selection.
+    Uses raw ANSI escape sequences for precise cursor control. This implementation
+    avoids cursor save/restore and newlines during updates to prevent scrolling issues.
+    Uses \033[2K to clear entire lines and explicit cursor movement.
     
     Args:
         message: Confirmation message to display
@@ -354,64 +354,62 @@ def _display_confirmation_menu(message: str, selected: int = 0, is_first: bool =
         # First display - ensure we're on a fresh line after Rich output
         sys.stdout.write('\r\n\r')  # Reset to column 0, newline, reset to column 0
         sys.stdout.flush()  # Ensure Rich's output is flushed first
-        # Write message starting from column 0
+        # Write message starting from column 0 (use \n here for first display)
         sys.stdout.write(f"{message}?\n")
+        # After message, we're on the line after the message
+        # The menu will start on the next line
     else:
-        # Update display - restore to saved position (first option line)
-        sys.stdout.write('\033[u')  # Restore to saved position (first option line, column 0)
-        # Clear both option lines completely
-        sys.stdout.write('\r\033[K')  # Clear first option line
-        sys.stdout.write('\033[1B\r\033[K')  # Move down, clear second option line
-        sys.stdout.write('\033[1A')  # Move back up to first option line
+        # Update display - clear both option lines completely
+        # We're currently on the Deny line (where cursor was positioned)
+        # Move up 1 line to Allow line, clear both, then redraw
+        sys.stdout.write('\033[1A')  # Move up 1 line to Allow line (from Deny line)
+        sys.stdout.write('\r\033[2K')  # Clear entire Allow line (\033[2K = clear whole line)
+        sys.stdout.write('\033[1B\r\033[2K')  # Move down to Deny line, clear it
+        sys.stdout.write('\033[1A\r')  # Move back up to Allow line, go to start
     
-    # Display options - always write from start of line
+    # Display options - write from start of line
     # Use ASCII-only characters for perfect alignment
     # Format: "  [indicator] [text]" where indicator is > (selected) or space (not selected)
-    # Both use same width: 2 spaces + 1 char + 1 space = 4 chars total before text
     if selected == MENU_OPTION_ALLOW:
         # Allow is selected: "  > Allow" (green, bold)
-        sys.stdout.write('\r\033[K')  # Go to start of line and clear
-        sys.stdout.write(f"  \033[1;32m>\033[0m \033[1;32m{MENU_ALLOW_TEXT}\033[0m\n")
+        sys.stdout.write(f"  \033[1;32m>\033[0m \033[1;32m{MENU_ALLOW_TEXT}\033[0m")
+        # Move to next line - use \n on first display, cursor movement on updates
+        if is_first:
+            sys.stdout.write('\n')  # Newline for first display
+        else:
+            sys.stdout.write('\033[1B\r')  # Cursor down for updates (avoid scrolling)
         # Deny not selected: "    Deny" (red, dim)
-        sys.stdout.write('\r\033[K')  # Go to start of next line and clear
-        sys.stdout.write(f"    \033[31m{MENU_DENY_TEXT}\033[0m\n")
+        sys.stdout.write(f"    \033[31m{MENU_DENY_TEXT}\033[0m")
     else:
         # Allow not selected: "    Allow" (green, dim)
-        sys.stdout.write('\r\033[K')  # Go to start of line and clear
-        sys.stdout.write(f"    \033[32m{MENU_ALLOW_TEXT}\033[0m\n")
+        sys.stdout.write(f"    \033[32m{MENU_ALLOW_TEXT}\033[0m")
+        # Move to next line
+        if is_first:
+            sys.stdout.write('\n')  # Newline for first display
+        else:
+            sys.stdout.write('\033[1B\r')  # Cursor down for updates
         # Deny is selected: "  > Deny" (red, bold)
-        sys.stdout.write('\r\033[K')  # Go to start of next line and clear
-        sys.stdout.write(f"  \033[1;31m>\033[0m \033[1;31m{MENU_DENY_TEXT}\033[0m\n")
+        sys.stdout.write(f"  \033[1;31m>\033[0m \033[1;31m{MENU_DENY_TEXT}\033[0m")
     
-    # After writing both options, we're on "line after Deny"
-    # Now position cursor and save position (only on first display)
-    if is_first:
-        # Move up 2 lines to first option (Allow) line
-        sys.stdout.write('\033[2A')  # Move up 2 lines to Allow line
+    # After writing both options:
+    # - On first display: we're on "line after Deny" (due to \n)
+    # - On updates: we're on the Deny line (due to cursor movement)
+    # Position cursor based on selected option
+    if selected == MENU_OPTION_ALLOW:
+        # Move to Allow line and position cursor
+        if is_first:
+            sys.stdout.write('\033[2A')  # Move up 2 lines (from line after Deny)
+        else:
+            sys.stdout.write('\033[1A')  # Move up 1 line (from Deny line)
         sys.stdout.write('\r')  # Go to start of line
-        sys.stdout.write('\033[s')  # Save cursor position (at first option line, column 0)
-        # Position cursor based on selected option
-        if selected == MENU_OPTION_ALLOW:
-            # Position cursor after "Allow" on first line
-            sys.stdout.write(f'\033[{MENU_CURSOR_POS_AFTER_ALLOW}C')  # Move right to after "  > Allow "
-        else:
-            # Position cursor after "Deny" on second line
-            sys.stdout.write('\033[1B')  # Move down 1 line to Deny line
-            sys.stdout.write('\r')  # Go to start of Deny line
-            sys.stdout.write(f'\033[{MENU_CURSOR_POS_AFTER_DENY}C')  # Move right to after "  > Deny "
+        sys.stdout.write(f'\033[{MENU_CURSOR_POS_AFTER_ALLOW}C')  # Position after "  > Allow "
     else:
-        # Update: after writing both options, we're on "line after Deny"
-        # Reposition cursor based on new selection
-        if selected == MENU_OPTION_ALLOW:
-            # Move to Allow line and position cursor
-            sys.stdout.write('\033[2A')  # Move up 2 lines to Allow line (from line after Deny)
-            sys.stdout.write('\r')  # Go to start
-            sys.stdout.write(f'\033[{MENU_CURSOR_POS_AFTER_ALLOW}C')  # Position after "  > Allow "
-        else:
-            # Move to Deny line and position cursor
-            sys.stdout.write('\033[1A')  # Move up 1 line to Deny line (from line after Deny)
-            sys.stdout.write('\r')  # Go to start of Deny line
-            sys.stdout.write(f'\033[{MENU_CURSOR_POS_AFTER_DENY}C')  # Position after "  > Deny "
+        # Position on Deny line
+        if is_first:
+            sys.stdout.write('\033[1A')  # Move up 1 line (from line after Deny to Deny line)
+        # else: we're already on Deny line
+        sys.stdout.write('\r')  # Go to start of Deny line
+        sys.stdout.write(f'\033[{MENU_CURSOR_POS_AFTER_DENY}C')  # Position after "  > Deny "
     
     sys.stdout.flush()
 
