@@ -25,6 +25,15 @@ RAINBOW_COLORS = ["red", "yellow", "green", "cyan", "blue", "magenta"]
 STREAM_UPDATE_THRESHOLD = 20  # Only update every N characters to reduce flashing
 SPINNER_UPDATE_INTERVAL = 0.1  # Seconds between spinner frame updates
 
+# Confirmation menu constants
+MENU_OPTION_ALLOW = 0
+MENU_OPTION_DENY = 1
+MENU_ALLOW_TEXT = "Allow"
+MENU_DENY_TEXT = "Deny"
+MENU_CURSOR_POS_AFTER_ALLOW = 10  # Position after "  > Allow " (9 chars + 1 space)
+MENU_CURSOR_POS_AFTER_DENY = 9    # Position after "  > Deny " (8 chars + 1 space)
+MENU_LINES_COUNT = 2  # Number of option lines (Allow and Deny)
+
 # Pattern to match JSON command plan blocks (for filtering from display)
 # Matches ```json ... ``` blocks that contain JSON objects
 JSON_COMMAND_PLAN_PATTERN = re.compile(
@@ -292,12 +301,9 @@ def render_command(command: str) -> None:
     console.print(Panel(syntax, border_style="cyan", title="Command"))
 
 
-def _get_raw_char(fd: int) -> str:
+def _get_raw_char() -> str:
     """
-    Read a single character from file descriptor in raw mode.
-    
-    Args:
-        fd: File descriptor to read from
+    Read a single character from stdin in raw mode.
     
     Returns:
         Single character string
@@ -305,26 +311,23 @@ def _get_raw_char(fd: int) -> str:
     return sys.stdin.read(1)
 
 
-def _get_arrow_key(fd: int) -> Optional[str]:
+def _get_arrow_key() -> Optional[str]:
     """
     Detect arrow key presses from ANSI escape sequences.
     
     Called after ESC character (\x1b) has been detected.
     Expects the next characters to be '[' followed by A/B/C/D.
     
-    Args:
-        fd: File descriptor to read from
-    
     Returns:
         'up', 'down', 'left', 'right', or None if not an arrow key
     """
     # Arrow keys send escape sequence: \x1b[A (up), \x1b[B (down), etc.
     # ESC has already been read, so we expect '[' next
-    second_char = _get_raw_char(fd)
+    second_char = _get_raw_char()
     if second_char != '[':
         return None
     
-    third_char = _get_raw_char(fd)
+    third_char = _get_raw_char()
     arrow_map = {
         'A': 'up',
         'B': 'down',
@@ -338,9 +341,13 @@ def _display_confirmation_menu(message: str, selected: int = 0, is_first: bool =
     """
     Display confirmation menu with Allow and Deny options.
     
+    Uses raw ANSI escape sequences for precise cursor control. On first display,
+    saves cursor position at the first option line for future updates. Updates
+    restore to saved position, clear both lines, and redraw with new selection.
+    
     Args:
         message: Confirmation message to display
-        selected: Which option is selected (0 = Allow, 1 = Deny)
+        selected: Which option is selected (MENU_OPTION_ALLOW = 0 or MENU_OPTION_DENY = 1)
         is_first: Whether this is the first display (True) or an update (False)
     """
     if is_first:
@@ -349,8 +356,7 @@ def _display_confirmation_menu(message: str, selected: int = 0, is_first: bool =
         sys.stdout.flush()  # Ensure Rich's output is flushed first
         # Write message starting from column 0
         sys.stdout.write(f"{message}?\n")
-    
-    if not is_first:
+    else:
         # Update display - restore to saved position (first option line)
         sys.stdout.write('\033[u')  # Restore to saved position (first option line, column 0)
         # Clear both option lines completely
@@ -362,24 +368,20 @@ def _display_confirmation_menu(message: str, selected: int = 0, is_first: bool =
     # Use ASCII-only characters for perfect alignment
     # Format: "  [indicator] [text]" where indicator is > (selected) or space (not selected)
     # Both use same width: 2 spaces + 1 char + 1 space = 4 chars total before text
-    # Display options - always write from start of line
-    # Use ASCII-only characters for perfect alignment
-    # Format: "  [indicator] [text]" where indicator is > (selected) or space (not selected)
-    # Both use same width: 2 spaces + 1 char + 1 space = 4 chars total before text
-    if selected == 0:
-        # Allow is selected: "  > Allow" (9 display chars: 2 spaces + > + space + Allow)
+    if selected == MENU_OPTION_ALLOW:
+        # Allow is selected: "  > Allow" (green, bold)
         sys.stdout.write('\r\033[K')  # Go to start of line and clear
-        sys.stdout.write("  \033[1;32m>\033[0m \033[1;32mAllow\033[0m\n")
-        # Deny not selected: "    Deny" (8 display chars: 4 spaces + Deny) - aligned to same column
+        sys.stdout.write(f"  \033[1;32m>\033[0m \033[1;32m{MENU_ALLOW_TEXT}\033[0m\n")
+        # Deny not selected: "    Deny" (red, dim)
         sys.stdout.write('\r\033[K')  # Go to start of next line and clear
-        sys.stdout.write("    \033[31mDeny\033[0m\n")
+        sys.stdout.write(f"    \033[31m{MENU_DENY_TEXT}\033[0m\n")
     else:
-        # Allow not selected: "    Allow" (9 display chars: 4 spaces + Allow) - aligned to same column
+        # Allow not selected: "    Allow" (green, dim)
         sys.stdout.write('\r\033[K')  # Go to start of line and clear
-        sys.stdout.write("    \033[32mAllow\033[0m\n")
-        # Deny is selected: "  > Deny" (8 display chars: 2 spaces + > + space + Deny)
+        sys.stdout.write(f"    \033[32m{MENU_ALLOW_TEXT}\033[0m\n")
+        # Deny is selected: "  > Deny" (red, bold)
         sys.stdout.write('\r\033[K')  # Go to start of next line and clear
-        sys.stdout.write("  \033[1;31m>\033[0m \033[1;31mDeny\033[0m\n")
+        sys.stdout.write(f"  \033[1;31m>\033[0m \033[1;31m{MENU_DENY_TEXT}\033[0m\n")
     
     # After writing both options, we're on "line after Deny"
     # Now position cursor and save position (only on first display)
@@ -389,27 +391,27 @@ def _display_confirmation_menu(message: str, selected: int = 0, is_first: bool =
         sys.stdout.write('\r')  # Go to start of line
         sys.stdout.write('\033[s')  # Save cursor position (at first option line, column 0)
         # Position cursor based on selected option
-        if selected == 0:
+        if selected == MENU_OPTION_ALLOW:
             # Position cursor after "Allow" on first line
-            sys.stdout.write('\033[10C')  # Move right 10 columns (after "  > Allow ")
+            sys.stdout.write(f'\033[{MENU_CURSOR_POS_AFTER_ALLOW}C')  # Move right to after "  > Allow "
         else:
             # Position cursor after "Deny" on second line
             sys.stdout.write('\033[1B')  # Move down 1 line to Deny line
             sys.stdout.write('\r')  # Go to start of Deny line
-            sys.stdout.write('\033[9C')  # Move right 9 columns (after "  > Deny ")
+            sys.stdout.write(f'\033[{MENU_CURSOR_POS_AFTER_DENY}C')  # Move right to after "  > Deny "
     else:
         # Update: after writing both options, we're on "line after Deny"
         # Reposition cursor based on new selection
-        if selected == 0:
+        if selected == MENU_OPTION_ALLOW:
             # Move to Allow line and position cursor
             sys.stdout.write('\033[2A')  # Move up 2 lines to Allow line (from line after Deny)
             sys.stdout.write('\r')  # Go to start
-            sys.stdout.write('\033[10C')  # Position after "  > Allow "
+            sys.stdout.write(f'\033[{MENU_CURSOR_POS_AFTER_ALLOW}C')  # Position after "  > Allow "
         else:
             # Move to Deny line and position cursor
             sys.stdout.write('\033[1A')  # Move up 1 line to Deny line (from line after Deny)
             sys.stdout.write('\r')  # Go to start of Deny line
-            sys.stdout.write('\033[9C')  # Position after "  > Deny "
+            sys.stdout.write(f'\033[{MENU_CURSOR_POS_AFTER_DENY}C')  # Position after "  > Deny "
     
     sys.stdout.flush()
 
@@ -418,8 +420,14 @@ def confirm_action(message: str) -> bool:
     """
     Confirm an action with the user using arrow key navigation.
     
-    Displays "Allow" (green) and "Deny" (red) options that can be navigated
-    with arrow keys. Press Enter to confirm selection.
+    Displays an interactive menu with "Allow" (green) and "Deny" (red) options
+    that can be navigated with arrow keys (up/down/left/right). Press Enter to
+    confirm selection, or Ctrl+C to cancel.
+    
+    Falls back to simple y/N prompt if:
+    - Not in a TTY environment (uses /dev/tty if available)
+    - Raw terminal mode is not available
+    - Terminal operations fail
     
     Args:
         message: Confirmation message to display
@@ -449,40 +457,39 @@ def confirm_action(message: str) -> bool:
             # Set terminal to raw mode
             tty.setraw(fd)
             
-            selected = 0  # 0 = Allow, 1 = Deny
+            selected = MENU_OPTION_ALLOW  # Start with Allow selected
             _display_confirmation_menu(message, selected, is_first=True)
             
             while True:
-                char = _get_raw_char(fd)
+                char = _get_raw_char()
                 
                 # Check for arrow keys
                 if char == '\x1b':  # ESC sequence
-                    arrow = _get_arrow_key(fd)
-                    if arrow and arrow in ('up', 'down', 'left', 'right'):
-                        # Toggle selection
-                        selected = 1 - selected
+                    arrow = _get_arrow_key()
+                    if arrow in ('up', 'down', 'left', 'right'):
+                        # Toggle selection between Allow and Deny
+                        selected = MENU_OPTION_DENY if selected == MENU_OPTION_ALLOW else MENU_OPTION_ALLOW
                         _display_confirmation_menu(message, selected, is_first=False)
-                        continue
                     # If not an arrow key, ignore the escape sequence and continue
                     continue
                 
                 # Check for Enter key (CR or LF)
                 if char in ('\r', '\n'):
-                    # Clear the menu - move to beginning and clear lines
-                    sys.stdout.write('\r')  # Return to start of line
-                    sys.stdout.write('\033[2B')  # Move down 2 lines (past the menu)
+                    # Clear the menu - move past both option lines
+                    sys.stdout.write('\r')  # Return to start of current line
+                    sys.stdout.write(f'\033[{MENU_LINES_COUNT}B')  # Move down past the menu
                     sys.stdout.write('\r\033[K')  # Clear current line
                     sys.stdout.flush()
                     
                     # Restore terminal settings before returning
                     termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-                    return selected == 0  # True for Allow, False for Deny
+                    return selected == MENU_OPTION_ALLOW  # True for Allow, False for Deny
                 
                 # Check for Ctrl+C
                 if char == '\x03':  # Ctrl+C
                     # Clear the menu and move to next line
-                    sys.stdout.write('\r')  # Return to start of line
-                    sys.stdout.write('\033[2B')  # Move down 2 lines
+                    sys.stdout.write('\r')  # Return to start of current line
+                    sys.stdout.write(f'\033[{MENU_LINES_COUNT}B')  # Move down past the menu
                     sys.stdout.write('\r\033[K\n')  # Clear and newline
                     sys.stdout.flush()
                     termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
@@ -494,8 +501,8 @@ def confirm_action(message: str) -> bool:
             # Always restore terminal settings
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
     
-    except (termios.error, OSError, AttributeError):
-        # Fall back to simple y/N prompt if raw mode fails
+    except (termios.error, OSError, AttributeError, EOFError, KeyboardInterrupt):
+        # Fall back to simple y/N prompt if raw mode fails or input is interrupted
         try:
             prompt = f"{message} (y/N): "
             response = input(prompt).strip().lower()
@@ -503,9 +510,6 @@ def confirm_action(message: str) -> bool:
         except (EOFError, KeyboardInterrupt):
             console.print("[yellow]No input received. Skipping execution (use --yes to auto-confirm).[/yellow]")
             return False
-    except (EOFError, KeyboardInterrupt):
-        console.print("[yellow]No input received. Skipping execution (use --yes to auto-confirm).[/yellow]")
-        return False
 
 
 def show_loading_status(message: str = "Processing...") -> ContextManager[Status]:
