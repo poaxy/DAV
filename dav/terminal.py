@@ -359,15 +359,18 @@ def _display_confirmation_menu(message: str, selected: int = 0, is_first: bool =
         sys.stdout.write('\033[3A')
     
     # Display message and options with highlighting (always redraw)
+    # Use consistent spacing: both options start at same column
+    # Format: "  [indicator] [text]" where indicator is ▶ (selected) or · (not selected)
+    # Both use same width: 2 spaces + 1 char + 1 space = text starts at column 4
     sys.stdout.write(f"{message}?\n")
     if selected == 0:
         # Allow is selected
-        sys.stdout.write("  \033[1;32m▶ Allow\033[0m\n")  # Bold green
-        sys.stdout.write("  \033[31m  Deny\033[0m\n")  # Red
+        sys.stdout.write("  \033[1;32m▶\033[0m \033[1;32mAllow\033[0m\n")  # 2 spaces + arrow + space + text
+        sys.stdout.write("  \033[31m·\033[0m \033[31mDeny\033[0m\n")  # 2 spaces + dot + space + text (aligned)
     else:
         # Deny is selected
-        sys.stdout.write("  \033[32m  Allow\033[0m\n")  # Green
-        sys.stdout.write("  \033[1;31m▶ Deny\033[0m\n")  # Bold red
+        sys.stdout.write("  \033[32m·\033[0m \033[32mAllow\033[0m\n")  # 2 spaces + dot + space + text (aligned)
+        sys.stdout.write("  \033[1;31m▶\033[0m \033[1;31mDeny\033[0m\n")  # 2 spaces + arrow + space + text
     
     # Move cursor up 2 lines to be ready for next input
     sys.stdout.write('\033[2A')
