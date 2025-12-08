@@ -344,37 +344,40 @@ def _display_confirmation_menu(message: str, selected: int = 0, is_first: bool =
         is_first: Whether this is the first display (True) or an update (False)
     """
     if is_first:
-        # First display - save cursor position before writing menu
-        sys.stdout.write('\033[s')  # Save cursor position (before menu)
+        # First display - ensure we're on a fresh line after Rich output
+        # Rich's console.print might leave cursor in middle of line, so:
+        # 1. Go to start of current line (\r)
+        # 2. Move to new line (\n) 
+        # 3. Go to start of that line (\r) to ensure column 0
+        sys.stdout.write('\r\n\r')  # Reset to column 0, newline, reset to column 0
+        sys.stdout.flush()  # Ensure Rich's output is flushed first
+        # Write message starting from column 0
+        sys.stdout.write(f"{message}?\n")
     
     if not is_first:
-        # Update display - restore to saved position and clear lines
-        sys.stdout.write('\033[u')  # Restore to saved position
-        # Clear 3 lines: message + 2 options
-        for _ in range(3):
-            sys.stdout.write('\r\033[K')  # Clear current line
-            if _ < 2:  # Don't move down after last line
-                sys.stdout.write('\033[1B')  # Move down one line
-        # Move back up to start of menu (3 lines up)
-        sys.stdout.write('\033[3A')
+        # Update display - move up 2 lines to clear the option lines
+        sys.stdout.write('\033[2A')  # Move up 2 lines (to first option line)
     
-    # Display message and options with highlighting (always redraw)
-    # Use ASCII-only characters for perfect alignment across all terminals
+    # Display options - always write from start of line
+    # Use ASCII-only characters for perfect alignment
     # Format: "  [indicator] [text]" where indicator is > (selected) or space (not selected)
     # Both use same width: 2 spaces + 1 char + 1 space = 4 chars total before text
-    sys.stdout.write(f"{message}?\n")
     if selected == 0:
         # Allow is selected: "  > Allow" (2 spaces + > + space + text)
+        sys.stdout.write('\r\033[K')  # Go to start of line and clear
         sys.stdout.write("  \033[1;32m>\033[0m \033[1;32mAllow\033[0m\n")
         # Deny not selected: "    Deny" (4 spaces + text) - aligned to same column
+        sys.stdout.write('\r\033[K')  # Go to start of next line and clear
         sys.stdout.write("    \033[31mDeny\033[0m\n")
     else:
         # Allow not selected: "    Allow" (4 spaces + text) - aligned to same column
+        sys.stdout.write('\r\033[K')  # Go to start of line and clear
         sys.stdout.write("    \033[32mAllow\033[0m\n")
         # Deny is selected: "  > Deny" (2 spaces + > + space + text)
+        sys.stdout.write('\r\033[K')  # Go to start of next line and clear
         sys.stdout.write("  \033[1;31m>\033[0m \033[1;31mDeny\033[0m\n")
     
-    # Move cursor up 2 lines to be ready for next input
+    # Move cursor up 2 lines to be ready for next input (at first option line)
     sys.stdout.write('\033[2A')
     sys.stdout.flush()
 
