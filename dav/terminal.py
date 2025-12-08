@@ -26,6 +26,12 @@ RAINBOW_COLORS = ["red", "yellow", "green", "cyan", "blue", "magenta"]
 STREAM_UPDATE_THRESHOLD = 20  # Only update every N characters to reduce flashing
 SPINNER_UPDATE_INTERVAL = 0.1  # Seconds between spinner frame updates
 
+# Confirmation menu constants
+ALLOW_TEXT = "Allow"
+DENY_TEXT = "Deny"
+ALLOW_COLOR = "#00ff00"  # Green
+DENY_COLOR = "#ff0000"  # Red
+
 # Pattern to match JSON command plan blocks (for filtering from display)
 # Matches ```json ... ``` blocks that contain JSON objects
 JSON_COMMAND_PLAN_PATTERN = re.compile(
@@ -324,34 +330,34 @@ def confirm_action(message: str) -> bool:
         # Create colored choices: Allow in green, Deny in red
         # Use FormattedText to apply colors to individual choices
         allow_choice = questionary.Choice(
-            title=FormattedText([('fg:#00ff00 bold', 'Allow')]),
-            value='Allow'
+            title=FormattedText([(f'fg:{ALLOW_COLOR} bold', ALLOW_TEXT)]),
+            value=ALLOW_TEXT
         )
         deny_choice = questionary.Choice(
-            title=FormattedText([('fg:#ff0000 bold', 'Deny')]),
-            value='Deny'
+            title=FormattedText([(f'fg:{DENY_COLOR} bold', DENY_TEXT)]),
+            value=DENY_TEXT
         )
         
-        # Custom style: neutral pointer, but choices maintain their colors
-        # The highlighted style will be applied as an overlay, so we use a neutral color
-        # that won't override the choice colors too much
+        # Custom style: green pointer to match Allow theme
+        # The highlighted/selected styles use bold to preserve choice colors
         custom_style = questionary.Style([
-            ('qmark', 'fg:#00ff00 bold'),         # Green question mark
-            ('question', 'bold'),                 # Bold question text
-            ('answer', 'bold'),                   # Bold for submitted answer (keeps choice color)
-            ('pointer', 'fg:#00ff00'),            # Green pointer indicator
-            ('highlighted', 'bold'),              # Bold when highlighted (preserves choice color)
-            ('selected', 'bold'),                 # Bold when selected (preserves choice color)
+            ('qmark', f'fg:{ALLOW_COLOR} bold'),      # Green question mark
+            ('question', 'bold'),                      # Bold question text
+            ('answer', 'bold'),                        # Bold for submitted answer (preserves choice color)
+            ('pointer', f'fg:{ALLOW_COLOR}'),          # Green pointer indicator
+            ('highlighted', 'bold'),                   # Bold when highlighted (preserves choice color)
+            ('selected', 'bold'),                      # Bold when selected (preserves choice color)
         ])
         
         result = questionary.select(
             message,
             choices=[allow_choice, deny_choice],
-            default='Allow',
+            default=ALLOW_TEXT,
             style=custom_style,
         ).ask()
         
-        return result == "Allow"
+        # Return True if Allow was selected, False otherwise (Deny or None/cancelled)
+        return result == ALLOW_TEXT
     except KeyboardInterrupt:
         # User pressed Ctrl+C
         return False
