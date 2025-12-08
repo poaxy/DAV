@@ -344,19 +344,22 @@ def _display_confirmation_menu(message: str, selected: int = 0, is_first: bool =
         is_first: Whether this is the first display (True) or an update (False)
     """
     if is_first:
-        # First display - just show the menu
-        sys.stdout.write(f"{message}?\n")
-    else:
-        # Update display - clear previous lines and redraw
-        # Move up 2 lines (past the options) and clear
-        sys.stdout.write('\033[2A')  # Move up 2 lines
-        sys.stdout.write('\r\033[K')  # Clear current line (message line)
-        sys.stdout.write('\033[1B\r\033[K')  # Move down, clear option 1
-        sys.stdout.write('\033[1B\r\033[K')  # Move down, clear option 2
-        sys.stdout.write('\033[2A')  # Move back up to message line
-        sys.stdout.write(f"{message}?\n")
+        # First display - save cursor position before writing menu
+        sys.stdout.write('\033[s')  # Save cursor position (before menu)
     
-    # Display options with highlighting
+    if not is_first:
+        # Update display - restore to saved position and clear lines
+        sys.stdout.write('\033[u')  # Restore to saved position
+        # Clear 3 lines: message + 2 options
+        for _ in range(3):
+            sys.stdout.write('\r\033[K')  # Clear current line
+            if _ < 2:  # Don't move down after last line
+                sys.stdout.write('\033[1B')  # Move down one line
+        # Move back up to start of menu (3 lines up)
+        sys.stdout.write('\033[3A')
+    
+    # Display message and options with highlighting (always redraw)
+    sys.stdout.write(f"{message}?\n")
     if selected == 0:
         # Allow is selected
         sys.stdout.write("  \033[1;32m▶ Allow\033[0m\n")  # Bold green
@@ -415,11 +418,13 @@ def confirm_action(message: str) -> bool:
                 # Check for arrow keys
                 if char == '\x1b':  # ESC sequence
                     arrow = _get_arrow_key(fd)
-                    if arrow in ('up', 'down', 'left', 'right'):
+                    if arrow and arrow in ('up', 'down', 'left', 'right'):
                         # Toggle selection
                         selected = 1 - selected
                         _display_confirmation_menu(message, selected, is_first=False)
                         continue
+                    # If not an arrow key, ignore the escape sequence and continue
+                    continue
                 
                 # Check for Enter key (CR or LF)
                 if char in ('\r', '\n'):
