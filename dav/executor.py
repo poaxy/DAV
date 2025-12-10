@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
 import sys
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from plumbum import local
+from plumbum.commands import ProcessExecutionError, ProcessTimedOut
 
 from dav.command_plan import CommandPlan
 from dav.terminal import (
@@ -22,7 +25,6 @@ from dav.terminal import (
 
 
 COMMAND_TIMEOUT_SECONDS = 300
-THREAD_JOIN_TIMEOUT_SECONDS = 2
 
 # Global sudo handler cache (created once per process)
 _sudo_handler_cache: Optional[Any] = None
@@ -302,78 +304,151 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
         # Store original command for logging
         original_command = command
 
+        # Build plumbum command from command_list
+        if not command_list:
+            return False, "", "Empty command list", 1
+        
+        # Create plumbum command object
+        # Plumbum supports building commands dynamically
+        # Start with the command name
+        cmd = local[command_list[0]]
+        # Add arguments one by one (plumbum supports chaining)
+        for arg in command_list[1:]:
+            cmd = cmd[arg]
+        
+        # Apply environment variables and working directory
+        if env:
+            # Merge with current environment
+            merged_env = os.environ.copy()
+            merged_env.update(env)
+            cmd = cmd.with_env(**merged_env)
+        else:
+            cmd = cmd.with_env(**os.environ)
+        
+        if cwd:
+            cmd = cmd.with_cwd(cwd)
+
         if stream_output:
             success, stdout, stderr, return_code = _execute_command_streaming(
-                command_list, cwd, env, script_path
+                cmd, original_command, script_path, automation_logger
             )
-            # Record streaming command execution for summary
-            if automation_logger:
-                automation_logger.record_command_execution(
-                    command=original_command,
-                    success=success,
-                    return_code=return_code,
-                    stdout=stdout,
-                    stderr=stderr
-                )
             return success, stdout, stderr, return_code
         else:
-            result = subprocess.run(
-                command_list,
-                shell=False,  # CRITICAL: Use shell=False for security
-                capture_output=True,
-                text=True,
-                timeout=COMMAND_TIMEOUT_SECONDS,
-                cwd=cwd,
-                env=env,
-            )
-            
-            # Clean up temporary script if created
-            if script_path and script_path.exists():
-                try:
-                    script_path.unlink()
-                except Exception:
-                    pass
-            
-            # Record command execution for summary report
-            if automation_logger:
-                automation_logger.record_command_execution(
-                    command=original_command,
-                    success=result.returncode == 0,
-                    return_code=result.returncode,
-                    stdout=result.stdout,
-                    stderr=result.stderr
+            # Non-streaming execution
+            try:
+                # Use plumbum's run with retcode=None to get (retcode, stdout, stderr) tuple
+                # This doesn't raise on non-zero exit codes
+                result = cmd.run(
+                    retcode=None,
+                    timeout=COMMAND_TIMEOUT_SECONDS,
                 )
+                
+                # Clean up temporary script if created
+                if script_path and script_path.exists():
+                    try:
+                        script_path.unlink()
+                    except Exception:
+                        pass
+                
+                # Plumbum's run(retcode=None) returns (retcode, stdout, stderr) tuple
+                # Handle different possible return formats
+                if isinstance(result, tuple):
+                    if len(result) >= 3:
+                        return_code, stdout, stderr = result[0], result[1], result[2]
+                    elif len(result) == 2:
+                        # Some versions return (retcode, stdout)
+                        return_code, stdout = result[0], result[1]
+                        stderr = ""
+                    else:
+                        return_code = result[0] if len(result) > 0 else 0
+                        stdout = result[1] if len(result) > 1 else ""
+                        stderr = result[2] if len(result) > 2 else ""
+                else:
+                    # Fallback - treat as success with stdout
+                    return_code = 0
+                    stdout = str(result) if result else ""
+                    stderr = ""
+                
+                success = return_code == 0
+                
+                # Record command execution for summary report
+                if automation_logger:
+                    automation_logger.record_command_execution(
+                        command=original_command,
+                        success=success,
+                        return_code=return_code,
+                        stdout=stdout,
+                        stderr=stderr
+                    )
+                
+                return success, stdout, stderr, return_code
             
-            return result.returncode == 0, result.stdout, result.stderr, result.returncode
+            except ProcessTimedOut:
+                error_msg = "Command execution timed out"
+                render_error(error_msg)
+                if automation_logger:
+                    automation_logger.log_error(f"{error_msg}: {original_command}")
+                # Clean up script
+                if script_path and script_path.exists():
+                    try:
+                        script_path.unlink()
+                    except Exception:
+                        pass
+                return False, "", "Command timed out", 124
+            
+            except ProcessExecutionError as e:
+                # Command failed with non-zero exit code
+                stdout = e.stdout if hasattr(e, 'stdout') else ""
+                stderr = e.stderr if hasattr(e, 'stderr') else str(e)
+                return_code = e.retcode if hasattr(e, 'retcode') else 1
+                
+                # Clean up temporary script if created
+                if script_path and script_path.exists():
+                    try:
+                        script_path.unlink()
+                    except Exception:
+                        pass
+                
+                # Record command execution for summary report
+                if automation_logger:
+                    automation_logger.record_command_execution(
+                        command=original_command,
+                        success=False,
+                        return_code=return_code,
+                        stdout=stdout,
+                        stderr=stderr
+                    )
+                
+                return False, stdout, stderr, return_code
     
-    except subprocess.TimeoutExpired:
-        error_msg = "Command execution timed out"
-        render_error(error_msg)
-        if automation_logger:
-            automation_logger.log_error(f"{error_msg}: {original_command if 'original_command' in locals() else command}")
-        return False, "", "Command timed out", 124
     except Exception as e:
         error_msg = f"Error executing command: {str(e)}"
         render_error(error_msg)
         if automation_logger:
             automation_logger.log_error(f"{error_msg}: {command}")
+        # Clean up script on error
+        if 'script_path' in locals() and script_path and script_path.exists():
+            try:
+                script_path.unlink()
+            except Exception:
+                pass
         return False, "", str(e), 1
 
 
 def _execute_command_streaming(
-    command_list: List[str],
-    cwd: Optional[str] = None,
-    env: Optional[Dict[str, str]] = None,
-    script_path: Optional[Path] = None
+    cmd: Any,
+    original_command: str,
+    script_path: Optional[Path] = None,
+    automation_logger: Optional[Any] = None
 ) -> Tuple[bool, str, str, int]:
     """
-    Execute a command with real-time output streaming.
+    Execute a command with real-time output streaming using plumbum.
     
     Args:
-        command_list: List of command arguments (for shell=False)
-        cwd: Working directory
-        env: Environment variables (merged with os.environ)
+        cmd: Plumbum command object (already configured with env, cwd, etc.)
+        original_command: Original command string for logging
         script_path: Path to temporary script if created (for cleanup)
+        automation_logger: Optional automation logger
     
     Returns:
         (success, stdout, stderr, return_code)
@@ -382,27 +457,16 @@ def _execute_command_streaming(
     stderr_lines: List[str] = []
     
     try:
-        process_env = os.environ.copy()
-        if env:
-            process_env.update(env)
-        process_env['PYTHONUNBUFFERED'] = '1'
+        # Use plumbum's popen for streaming
+        # Plumbum's popen() returns a process object similar to subprocess.Popen
+        process = cmd.popen()
         
-        process = subprocess.Popen(
-            command_list,
-            shell=False,  # CRITICAL: Use shell=False for security
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=0,
-            cwd=cwd,
-            env=process_env,
-        )
+        # Stream stdout in real-time
+        # Plumbum's iter_lines() gives stdout lines
         
         def read_stdout():
             try:
-                for line in iter(process.stdout.readline, ''):
-                    if not line:
-                        break
+                for line in process.iter_lines():
                     line = line.rstrip('\n\r')
                     if line:
                         stdout_lines.append(line)
@@ -413,57 +477,59 @@ def _execute_command_streaming(
         
         def read_stderr():
             try:
-                for line in iter(process.stderr.readline, ''):
-                    if not line:
-                        break
-                    line = line.rstrip('\n\r')
-                    if line:
-                        stderr_lines.append(line)
-                        print(line, file=sys.stderr)
-                        sys.stderr.flush()
+                # Read stderr from process.stderr if available
+                if hasattr(process, 'stderr') and process.stderr:
+                    for line in iter(process.stderr.readline, ''):
+                        if not line:
+                            break
+                        line = line.rstrip('\n\r')
+                        if line:
+                            stderr_lines.append(line)
+                            print(line, file=sys.stderr)
+                            sys.stderr.flush()
             except Exception:
                 pass
         
+        # Start reading threads
         stdout_thread = threading.Thread(target=read_stdout, daemon=True)
         stderr_thread = threading.Thread(target=read_stderr, daemon=True)
         stdout_thread.start()
         stderr_thread.start()
         
-        process_finished = threading.Event()
-        returncode_container = [None]
+        # Wait for process to complete with timeout
+        # Plumbum's process object from popen() should have wait() method
+        # Handle timeout by polling with timeout check
+        start_time = time.time()
         
-        def wait_for_process():
-            returncode_container[0] = process.wait()
-            process_finished.set()
-        
-        wait_thread = threading.Thread(target=wait_for_process, daemon=True)
-        wait_thread.start()
-        
-        if not process_finished.wait(timeout=COMMAND_TIMEOUT_SECONDS):
-            process.kill()
+        try:
+            # Poll process until it completes or times out
+            while True:
+                return_code = process.poll()
+                if return_code is not None:
+                    break
+                
+                # Check for timeout
+                if time.time() - start_time > COMMAND_TIMEOUT_SECONDS:
+                    process.kill()
+                    raise ProcessTimedOut("Command execution timed out")
+                
+                time.sleep(0.1)
+            
+        except ProcessTimedOut:
             render_error("Command execution timed out")
-            stdout_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS)
-            stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS)
+            stdout_thread.join(timeout=2)
+            stderr_thread.join(timeout=2)
+            # Clean up script
+            if script_path and script_path.exists():
+                try:
+                    script_path.unlink()
+                except Exception:
+                    pass
             return False, '\n'.join(stdout_lines), '\n'.join(stderr_lines), 124
         
-        wait_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS)
-        
-        returncode = returncode_container[0]
-        if returncode is None:
-            try:
-                returncode = process.poll()
-                if returncode is None:
-                    time.sleep(0.1)
-                    returncode = process.poll()
-                    if returncode is None:
-                        returncode = 1
-            except Exception:
-                returncode = 1
-        
-        process.stdout.close()
-        process.stderr.close()
-        stdout_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS * 5)
-        stderr_thread.join(timeout=THREAD_JOIN_TIMEOUT_SECONDS * 5)
+        # Wait for threads to finish reading
+        stdout_thread.join(timeout=2)
+        stderr_thread.join(timeout=2)
         
         # Clean up temporary script if created
         if script_path and script_path.exists():
@@ -472,11 +538,46 @@ def _execute_command_streaming(
             except Exception:
                 pass
         
-        success = returncode == 0
+        success = return_code == 0
         stdout = '\n'.join(stdout_lines)
         stderr = '\n'.join(stderr_lines)
         
-        return success, stdout, stderr, returncode
+        # Record streaming command execution for summary
+        if automation_logger:
+            automation_logger.record_command_execution(
+                command=original_command,
+                success=success,
+                return_code=return_code,
+                stdout=stdout,
+                stderr=stderr
+            )
+        
+        return success, stdout, stderr, return_code
+        
+    except ProcessExecutionError as e:
+        # Command failed
+        stdout = e.stdout if hasattr(e, 'stdout') else '\n'.join(stdout_lines)
+        stderr = e.stderr if hasattr(e, 'stderr') else str(e)
+        return_code = e.retcode if hasattr(e, 'retcode') else 1
+        
+        # Clean up temporary script on error
+        if script_path and script_path.exists():
+            try:
+                script_path.unlink()
+            except Exception:
+                pass
+        
+        # Record error
+        if automation_logger:
+            automation_logger.record_command_execution(
+                command=original_command,
+                success=False,
+                return_code=return_code,
+                stdout=stdout,
+                stderr=stderr
+            )
+        
+        return False, stdout, stderr, return_code
         
     except Exception as e:
         # Clean up temporary script on error
