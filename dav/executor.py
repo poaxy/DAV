@@ -424,6 +424,10 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
     except Exception as e:
         error_msg = f"Error executing command: {str(e)}"
         render_error(error_msg)
+        # Also print the exception type and traceback for debugging
+        import traceback
+        render_error(f"Exception type: {type(e).__name__}")
+        render_error(f"Traceback: {traceback.format_exc()}")
         if automation_logger:
             automation_logger.log_error(f"{error_msg}: {command}")
         # Clean up script on error
@@ -457,38 +461,44 @@ def _execute_command_streaming(
     stderr_lines: List[str] = []
     
     try:
-        # Use plumbum's popen for streaming
-        # Plumbum's popen() returns a process object similar to subprocess.Popen
+        # Use plumbum's popen() for streaming
+        # Plumbum's popen() returns a process object that should work like subprocess.Popen
         process = cmd.popen()
-        
-        # Stream stdout in real-time
-        # Plumbum's iter_lines() gives stdout lines
         
         def read_stdout():
             try:
-                for line in process.iter_lines():
-                    line = line.rstrip('\n\r')
-                    if line:
-                        stdout_lines.append(line)
-                        print(line)
-                        sys.stdout.flush()
-            except Exception:
-                pass
+                # Plumbum's process.stdout can be iterated directly
+                # According to docs: for line in p.stdout: works
+                if hasattr(process, 'stdout') and process.stdout:
+                    for line in process.stdout:
+                        line = line.rstrip('\n\r')
+                        if line:
+                            stdout_lines.append(line)
+                            print(line)
+                            sys.stdout.flush()
+            except Exception as e:
+                # Log the exception for debugging
+                import traceback
+                error_msg = f"Error reading stdout: {type(e).__name__}: {e}"
+                stderr_lines.append(error_msg)
+                render_error(f"{error_msg}\n{traceback.format_exc()}")
         
         def read_stderr():
             try:
-                # Read stderr from process.stderr if available
+                # Plumbum's process.stderr can be iterated directly
                 if hasattr(process, 'stderr') and process.stderr:
-                    for line in iter(process.stderr.readline, ''):
-                        if not line:
-                            break
+                    for line in process.stderr:
                         line = line.rstrip('\n\r')
                         if line:
                             stderr_lines.append(line)
                             print(line, file=sys.stderr)
                             sys.stderr.flush()
-            except Exception:
-                pass
+            except Exception as e:
+                # Log the exception for debugging
+                import traceback
+                error_msg = f"Error reading stderr: {type(e).__name__}: {e}"
+                stderr_lines.append(error_msg)
+                render_error(f"{error_msg}\n{traceback.format_exc()}")
         
         # Start reading threads
         stdout_thread = threading.Thread(target=read_stdout, daemon=True)
@@ -497,8 +507,6 @@ def _execute_command_streaming(
         stderr_thread.start()
         
         # Wait for process to complete with timeout
-        # Plumbum's process object from popen() should have wait() method
-        # Handle timeout by polling with timeout check
         start_time = time.time()
         
         try:
