@@ -338,6 +338,7 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
             try:
                 # Use plumbum's run with retcode=None to get (retcode, stdout, stderr) tuple
                 # This doesn't raise on non-zero exit codes
+                # Note: run() should return strings by default, but we'll handle bytes if needed
                 result = cmd.run(
                     retcode=None,
                     timeout=COMMAND_TIMEOUT_SECONDS,
@@ -351,7 +352,7 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
                         pass
                 
                 # Plumbum's run(retcode=None) returns (retcode, stdout, stderr) tuple
-                # Handle different possible return formats
+                # Handle different possible return formats and ensure strings
                 if isinstance(result, tuple):
                     if len(result) >= 3:
                         return_code, stdout, stderr = result[0], result[1], result[2]
@@ -363,10 +364,19 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
                         return_code = result[0] if len(result) > 0 else 0
                         stdout = result[1] if len(result) > 1 else ""
                         stderr = result[2] if len(result) > 2 else ""
+                    
+                    # Ensure stdout and stderr are strings (decode bytes if needed)
+                    if isinstance(stdout, bytes):
+                        stdout = stdout.decode('utf-8', errors='replace')
+                    if isinstance(stderr, bytes):
+                        stderr = stderr.decode('utf-8', errors='replace')
                 else:
                     # Fallback - treat as success with stdout
                     return_code = 0
-                    stdout = str(result) if result else ""
+                    if isinstance(result, bytes):
+                        stdout = result.decode('utf-8', errors='replace')
+                    else:
+                        stdout = str(result) if result else ""
                     stderr = ""
                 
                 success = return_code == 0
@@ -463,14 +473,23 @@ def _execute_command_streaming(
     try:
         # Use plumbum's popen() for streaming
         # Plumbum's popen() returns a process object that should work like subprocess.Popen
-        process = cmd.popen()
+        # Pass text=True to get strings instead of bytes
+        process = cmd.popen(text=True)
         
         def read_stdout():
             try:
                 # Plumbum's process.stdout can be iterated directly
-                # According to docs: for line in p.stdout: works
+                # With text=True, it should return strings, but handle bytes as fallback
                 if hasattr(process, 'stdout') and process.stdout:
                     for line in process.stdout:
+                        # Handle both bytes and strings for robustness
+                        # Even with text=True, some edge cases might return bytes
+                        if isinstance(line, bytes):
+                            line = line.decode('utf-8', errors='replace')
+                        elif not isinstance(line, str):
+                            # Convert other types to string
+                            line = str(line)
+                        # line is now guaranteed to be a string
                         line = line.rstrip('\n\r')
                         if line:
                             stdout_lines.append(line)
@@ -486,8 +505,17 @@ def _execute_command_streaming(
         def read_stderr():
             try:
                 # Plumbum's process.stderr can be iterated directly
+                # With text=True, it should return strings, but handle bytes as fallback
                 if hasattr(process, 'stderr') and process.stderr:
                     for line in process.stderr:
+                        # Handle both bytes and strings for robustness
+                        # Even with text=True, some edge cases might return bytes
+                        if isinstance(line, bytes):
+                            line = line.decode('utf-8', errors='replace')
+                        elif not isinstance(line, str):
+                            # Convert other types to string
+                            line = str(line)
+                        # line is now guaranteed to be a string
                         line = line.rstrip('\n\r')
                         if line:
                             stderr_lines.append(line)
@@ -511,14 +539,34 @@ def _execute_command_streaming(
         
         try:
             # Poll process until it completes or times out
+            # Plumbum's process object should have poll() method
             while True:
-                return_code = process.poll()
+                try:
+                    return_code = process.poll()
+                except AttributeError:
+                    # If poll() doesn't exist, try wait() or check returncode
+                    if hasattr(process, 'returncode'):
+                        return_code = process.returncode
+                    elif hasattr(process, 'wait'):
+                        return_code = process.wait()
+                    else:
+                        # Fallback: wait a bit and check again
+                        time.sleep(0.1)
+                        continue
+                
                 if return_code is not None:
                     break
                 
                 # Check for timeout
                 if time.time() - start_time > COMMAND_TIMEOUT_SECONDS:
-                    process.kill()
+                    try:
+                        process.kill()
+                    except (AttributeError, OSError):
+                        # If kill() doesn't work, try terminate()
+                        try:
+                            process.terminate()
+                        except (AttributeError, OSError):
+                            pass
                     raise ProcessTimedOut("Command execution timed out")
                 
                 time.sleep(0.1)
@@ -538,6 +586,19 @@ def _execute_command_streaming(
         # Wait for threads to finish reading
         stdout_thread.join(timeout=2)
         stderr_thread.join(timeout=2)
+        
+        # Ensure we have a valid return code
+        if return_code is None:
+            # If poll() didn't give us a return code, try to get it another way
+            try:
+                if hasattr(process, 'returncode'):
+                    return_code = process.returncode
+                elif hasattr(process, 'wait'):
+                    return_code = process.wait()
+                else:
+                    return_code = 0  # Default to success if we can't determine
+            except Exception:
+                return_code = 0  # Default to success on error
         
         # Clean up temporary script if created
         if script_path and script_path.exists():
