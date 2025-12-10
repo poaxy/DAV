@@ -12,7 +12,6 @@ from rich.console import Console
 if TYPE_CHECKING:
     from dav.ai_backend import AIBackend
     from dav.executor import ExecutionResult
-    from dav.history import HistoryManager
     from dav.session import SessionManager
 
 # Lazy imports for heavy modules - only load when needed
@@ -88,10 +87,8 @@ def main(
         "--execution",
         help="Execute commands found in response (with confirmation)",
     ),
-    history: bool = typer.Option(False, "--history", help="Show query history"),
     backend: Optional[str] = typer.Option(None, "--backend", help="AI backend (openai or anthropic)"),
     model: Optional[str] = typer.Option(None, "--model", help="AI model to use"),
-    clear_history: bool = typer.Option(False, "--clear-history", help="Clear query history"),
     uninstall: bool = typer.Option(False, "--uninstall", help="Complete uninstall: remove all data files and uninstall the package"),
     setup: bool = typer.Option(False, "--setup", help="Set up Dav: create .dav directory and template .env file"),
     update: bool = typer.Option(False, "--update", help="Update Dav to the latest version (preserves configuration)"),
@@ -123,27 +120,6 @@ def main(
     if uninstall:
         from dav.uninstall import run_uninstall
         run_uninstall(confirm=True)
-        return
-    
-    if history:
-        from dav.history import HistoryManager
-        history_manager = HistoryManager()
-        queries = history_manager.get_recent_queries(limit=20)
-        if queries:
-            console.print("\n[bold]Recent Queries:[/bold]\n")
-            for q in queries:
-                timestamp = q.get("timestamp", "unknown")
-                query_text = q.get("query", "")[:80]
-                console.print(f"  [{timestamp}] {query_text}")
-        else:
-            console.print("No history found.")
-        return
-    
-    if clear_history:
-        from dav.history import HistoryManager
-        history_manager = HistoryManager()
-        history_manager.clear_history()
-        console.print("History cleared.")
         return
     
     # Handle automation-related commands
@@ -236,7 +212,6 @@ def main(
     from dav.command_plan import CommandPlanError, extract_command_plan
     from dav.context import build_context, format_context_for_prompt
     from dav.executor import COMMAND_EXECUTION_MARKER, execute_commands_from_response
-    from dav.history import HistoryManager
     from dav.session import SessionManager
     from dav.terminal import (
         render_error,
@@ -256,7 +231,6 @@ def main(
             console.print("\n[yellow]Tip:[/yellow] Run [cyan]dav --setup[/cyan] to configure your API keys.")
         sys.exit(1)
     
-    history_manager = HistoryManager()
     session_manager = SessionManager(session_id=session)
     
     # Initialize automation logger if in automation mode
@@ -288,7 +262,7 @@ def main(
         if is_automation_mode:
             render_warning("Automation mode and interactive mode are mutually exclusive. Using automation mode.")
         else:
-            run_interactive_mode(ai_backend, history_manager, session_manager, execute, auto_confirm)
+            run_interactive_mode(ai_backend, session_manager, execute, auto_confirm)
             return
     
     if not query:
@@ -301,13 +275,6 @@ def main(
         detect_prompt_injection,
         validate_query_length,
     )
-    from dav.rate_limiter import check_api_rate_limit
-    
-    # Check rate limit
-    is_allowed, rate_limit_error = check_api_rate_limit()
-    if not is_allowed:
-        render_error(rate_limit_error or "Rate limit exceeded")
-        sys.exit(1)
     
     # Validate query length
     is_valid, length_error = validate_query_length(query)
@@ -358,7 +325,6 @@ def main(
             response,
             query,
             ai_backend,
-            history_manager,
             session_manager,
             execute,
             auto_confirm,
@@ -432,7 +398,6 @@ def _process_response(
     response: str,
     query: str,
     ai_backend: AIBackend,
-    history_manager: HistoryManager,
     session_manager: SessionManager,
     execute: bool,
     auto_confirm: bool,
@@ -448,7 +413,6 @@ def _process_response(
         response: AI response text
         query: User query
         ai_backend: AI backend instance
-        history_manager: History manager instance
         session_manager: Session manager instance
         execute: Whether to execute commands
         auto_confirm: Whether to auto-confirm execution
@@ -460,13 +424,6 @@ def _process_response(
     from dav.command_plan import CommandPlanError, extract_command_plan
     from dav.executor import COMMAND_EXECUTION_MARKER, execute_commands_from_response
     from dav.terminal import render_warning
-    
-    history_manager.add_query(
-        query=query,
-        response=response,
-        session_id=session_manager.session_id,
-        executed=execute
-    )
     
     session_manager.add_message("user", query)
     session_manager.add_message("assistant", response)
@@ -898,7 +855,7 @@ def _handle_command_execution(command: str, command_outputs: List[Dict[str, Any]
         return False
 
 
-def _process_query_with_ai(query: str, ai_backend, history_manager, session_manager, 
+def _process_query_with_ai(query: str, ai_backend, session_manager, 
                            execute: bool, auto_confirm: bool, command_outputs: List[Dict[str, Any]]) -> None:
     """
     Process a query with the AI backend (validation, sanitization, and response).
@@ -906,7 +863,6 @@ def _process_query_with_ai(query: str, ai_backend, history_manager, session_mana
     Args:
         query: User query string
         ai_backend: AI backend instance
-        history_manager: History manager instance
         session_manager: Session manager instance
         execute: Execute mode flag
         auto_confirm: Auto confirm flag
@@ -914,18 +870,11 @@ def _process_query_with_ai(query: str, ai_backend, history_manager, session_mana
     """
     from dav.terminal import render_error, render_warning, render_streaming_response_with_loading
     from dav.input_validator import sanitize_user_input, detect_prompt_injection, validate_query_length
-    from dav.rate_limiter import check_api_rate_limit
     
     # Validate query length
     is_valid, length_error = validate_query_length(query)
     if not is_valid:
         render_error(length_error or "Query validation failed")
-        return
-    
-    # Check rate limit
-    is_allowed, rate_limit_error = check_api_rate_limit()
-    if not is_allowed:
-        render_warning(rate_limit_error or "Rate limit exceeded. Please wait.")
         return
     
     # Sanitize user input
@@ -953,7 +902,6 @@ def _process_query_with_ai(query: str, ai_backend, history_manager, session_mana
         response,
         query,
         ai_backend,
-        history_manager,
         session_manager,
         execute,
         auto_confirm,
@@ -1035,7 +983,7 @@ def _handle_app_function(func_name: str, current_mode: str, command_outputs: Lis
         return None, False
 
 
-def _route_input(user_input: str, current_mode: str, ai_backend, history_manager, session_manager, 
+def _route_input(user_input: str, current_mode: str, ai_backend, session_manager, 
                  execute: bool, auto_confirm: bool, command_outputs: List[Dict[str, Any]]) -> Tuple[Optional[str], bool]:
     """
     Route user input based on prefix and current mode.
@@ -1044,7 +992,6 @@ def _route_input(user_input: str, current_mode: str, ai_backend, history_manager
         user_input: User input string
         current_mode: Current mode ("interactive" or "command")
         ai_backend: AI backend instance
-        history_manager: History manager instance
         session_manager: Session manager instance
         execute: Execute mode flag
         auto_confirm: Auto confirm flag
@@ -1086,7 +1033,7 @@ def _route_input(user_input: str, current_mode: str, ai_backend, history_manager
             query = remaining_text.strip()
             if query:
                 _process_query_with_ai(
-                    query, ai_backend, history_manager, session_manager,
+                    query, ai_backend, session_manager,
                     execute, auto_confirm, command_outputs
                 )
             # Return None to keep current mode (command mode)
@@ -1102,13 +1049,13 @@ def _route_input(user_input: str, current_mode: str, ai_backend, history_manager
     else:
         # In interactive mode, send to AI
         _process_query_with_ai(
-            user_input, ai_backend, history_manager, session_manager,
+            user_input, ai_backend, session_manager,
             execute, auto_confirm, command_outputs
         )
         return None, False
 
 
-def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
+def run_interactive_mode(ai_backend: AIBackend,
                         session_manager: SessionManager, execute: bool, auto_confirm: bool):
     """Run interactive mode for multi-turn conversations."""
     # Import here to avoid loading heavy modules for fast commands
@@ -1182,7 +1129,6 @@ def run_interactive_mode(ai_backend: AIBackend, history_manager: HistoryManager,
                 user_input,
                 current_mode,
                 ai_backend,
-                history_manager,
                 session_manager,
                 execute,
                 auto_confirm,

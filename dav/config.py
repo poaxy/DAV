@@ -68,18 +68,6 @@ def get_execute_permission() -> bool:
     """Check if command execution is enabled."""
     return os.getenv("DAV_ALLOW_EXECUTE", "false").lower() == "true"
 
-def get_history_enabled() -> bool:
-    """Check if history is enabled."""
-    return os.getenv("DAV_HISTORY_ENABLED", "true").lower() == "true"
-
-def get_history_db_path() -> Path:
-    """Get path to history database."""
-    db_path = os.getenv("DAV_HISTORY_DB")
-    if db_path:
-        # Expand ~ to home directory
-        return Path(db_path).expanduser()
-    return Path.home() / ".dav" / "history.db"
-
 def get_session_dir() -> Path:
     """Get directory for session files."""
     session_dir = os.getenv("DAV_SESSION_DIR")

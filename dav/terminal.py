@@ -113,50 +113,6 @@ def _get_shortened_model_name(model: str, backend: str) -> str:
     return model[:10] if len(model) > 10 else model
 
 
-def _get_rate_limit_info() -> tuple[str, str, int, int]:
-    """
-    Get rate limiting information for display.
-    
-    Returns:
-        Tuple of (formatted_string, color, remaining, total)
-    """
-    from dav.rate_limiter import api_rate_limiter
-    
-    # Get remaining tokens and capacity
-    remaining_tokens = api_rate_limiter.get_remaining_tokens()
-    capacity = api_rate_limiter.capacity
-    
-    # The rate limiter uses tokens, where each request costs 1 token
-    # So remaining tokens = remaining requests
-    remaining_requests = max(0, int(remaining_tokens))
-    total_requests = int(capacity)
-    
-    # Determine color based on remaining percentage
-    remaining_pct = (remaining_requests / total_requests * 100) if total_requests > 0 else 100
-    
-    if remaining_pct > 70:
-        color = "green"
-    elif remaining_pct > 30:
-        color = "yellow"
-    else:
-        color = "red"
-    
-    # Format rate limit display
-    if remaining_requests == 0:
-        # Show time until next token when at 0
-        time_until = api_rate_limiter.get_time_until_next_token()
-        if time_until > 0:
-            # Round to nearest second
-            seconds = int(time_until) + (1 if time_until % 1 >= 0.5 else 0)
-            formatted = f"rate: {remaining_requests}/{total_requests} ({seconds}s)"
-        else:
-            formatted = f"rate: {remaining_requests}/{total_requests}"
-    else:
-        formatted = f"rate: {remaining_requests}/{total_requests}"
-    
-    return formatted, color, remaining_requests, total_requests
-
-
 def format_interactive_prompt(mode: str = "interactive") -> Text:
     """Format the interactive mode prompt with mode, username and path.
     
@@ -240,17 +196,12 @@ def render_context_status_panel(usage, model: str, backend: str) -> None:
     # Get model info
     model_short = _get_shortened_model_name(model, backend)
     
-    # Get rate limit info
-    rate_text, rate_color, rate_remaining, rate_total = _get_rate_limit_info()
-    
     # Build panel content
-    # Format: [light orange]context: 4.2K/128.0K (3.3%)[/light orange] | [cyan]model: gpt-4[/cyan] | [yellow]rate: 7/10[/yellow]
+    # Format: [light orange]context: 4.2K/128.0K (3.3%)[/light orange] | [cyan]model: gpt-4[/cyan]
     content = (
         f"[{context_color_rgb}]context: {used_k:.1f}K/{max_k:.1f}K ({usage.usage_percentage:.1f}%)[/{context_color_rgb}] "
         f"[dim]│[/dim] "
-        f"[cyan]model: {model_short}[/cyan] "
-        f"[dim]│[/dim] "
-        f"[{rate_color}]{rate_text}[/{rate_color}]"
+        f"[cyan]model: {model_short}[/cyan]"
     )
     
     # Create panel with colored border

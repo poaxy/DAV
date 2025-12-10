@@ -88,9 +88,6 @@ DAV_DEFAULT_MODEL=gpt-4-turbo-preview
 # Permissions
 DAV_ALLOW_EXECUTE=false
 
-# History
-DAV_HISTORY_ENABLED=true
-
 # Sessions
 DAV_SESSION_DIR=~/.dav/sessions
 """
@@ -109,9 +106,6 @@ DAV_DEFAULT_MODEL=claude-3-5-sonnet-20241022
 
 # Permissions
 DAV_ALLOW_EXECUTE=false
-
-# History
-DAV_HISTORY_ENABLED=true
 
 # Sessions
 DAV_SESSION_DIR=~/.dav/sessions
@@ -274,9 +268,6 @@ DAV_DEFAULT_MODEL=gpt-4-turbo-preview
 # Permissions
 DAV_ALLOW_EXECUTE=false
 
-# History
-DAV_HISTORY_ENABLED=true
-
 # Sessions
 DAV_SESSION_DIR=/root/.dav/sessions
 """
@@ -291,9 +282,6 @@ DAV_DEFAULT_MODEL=claude-3-5-sonnet-20241022
 
 # Permissions
 DAV_ALLOW_EXECUTE=false
-
-# History
-DAV_HISTORY_ENABLED=true
 
 # Sessions
 DAV_SESSION_DIR=/root/.dav/sessions

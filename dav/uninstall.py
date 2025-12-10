@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm
 
-from dav.config import get_history_db_path, get_session_dir, get_automation_log_dir
+from dav.config import get_session_dir, get_automation_log_dir
 from dav.update import detect_installation_method
 
 console = Console()
@@ -20,12 +20,6 @@ def get_dav_data_paths() -> List[Tuple[Path, str]]:
     """Get all paths where Dav stores data."""
     paths = []
     seen_paths = set()  # Track paths to avoid duplicates
-    
-    # History database
-    history_db = get_history_db_path()
-    if history_db.exists() and history_db not in seen_paths:
-        paths.append((history_db, "History database"))
-        seen_paths.add(history_db)
     
     # Session directory
     session_dir = get_session_dir()

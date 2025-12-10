@@ -656,15 +656,6 @@ def execute_commands_from_response(
     
     render_info(f"Found {len(commands)} command(s) to execute")
     
-    # Check command execution rate limit
-    from dav.rate_limiter import check_command_rate_limit
-    is_allowed, rate_limit_error = check_command_rate_limit()
-    if not is_allowed:
-        render_warning(rate_limit_error or "Command execution rate limit exceeded")
-        if automation_logger:
-            automation_logger.log_warning("Command execution rate limit exceeded")
-        return results
-    
     for i, command in enumerate(commands, 1):
         if len(commands) > 1:
             render_info(f"Executing command {i}/{len(commands)}")

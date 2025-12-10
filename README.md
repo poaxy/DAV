@@ -11,7 +11,6 @@ An intelligent, context-aware AI assistant built directly into the Linux termina
 - **Interactive Mode**: Multi-turn conversations with `dav -i`
 - **Command Execution**: Execute commands with `--execute` (with confirmation)
 - **Session Persistence**: Maintain context across queries
-- **Query History**: Stored locally in SQLite
 
 ## Installation
 
@@ -108,11 +107,6 @@ dav --session debug "what's in the current directory?"
 dav --session debug "explain that file"
 ```
 
-### View History
-```bash
-dav --history
-```
-
 ### Update
 ```bash
 dav --update
@@ -137,8 +131,7 @@ DAV_ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
 # Permissions
 DAV_ALLOW_EXECUTE=false
 
-# History & Sessions
-DAV_HISTORY_ENABLED=true
+# Sessions
 DAV_SESSION_DIR=~/.dav/sessions
 
 # Input Limits
