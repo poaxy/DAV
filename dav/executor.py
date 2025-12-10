@@ -7,6 +7,7 @@ import re
 import sys
 import threading
 import time
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -28,6 +29,57 @@ COMMAND_TIMEOUT_SECONDS = 300
 
 # Global sudo handler cache (created once per process)
 _sudo_handler_cache: Optional[Any] = None
+
+
+def _cleanup_script(script_path: Optional[Path]) -> None:
+    """Clean up temporary script file if it exists."""
+    if script_path and script_path.exists():
+        try:
+            script_path.unlink()
+        except Exception:
+            pass
+
+
+def _ensure_string(value: Any) -> str:
+    """
+    Convert value to string, handling bytes and other types.
+    
+    Args:
+        value: Value to convert (bytes, str, or other)
+    
+    Returns:
+        String representation of the value
+    """
+    if isinstance(value, bytes):
+        return value.decode('utf-8', errors='replace')
+    elif isinstance(value, str):
+        return value
+    else:
+        return str(value) if value else ""
+
+
+def _get_process_return_code(process: Any) -> Optional[int]:
+    """
+    Get return code from plumbum process object with fallbacks.
+    
+    Args:
+        process: Plumbum process object
+    
+    Returns:
+        Return code or None if process is still running
+    """
+    try:
+        return process.poll()
+    except AttributeError:
+        # Try alternative methods
+        if hasattr(process, 'returncode'):
+            return process.returncode
+        elif hasattr(process, 'wait'):
+            try:
+                return process.wait()
+            except Exception:
+                return None
+    return None
 
 
 @dataclass
@@ -281,6 +333,7 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
         from dav.command_validator import prepare_command_for_execution, CommandParseError
         
         try:
+            # Prepare environment with PYTHONUNBUFFERED for unbuffered output
             env = os.environ.copy()
             env['PYTHONUNBUFFERED'] = '1'
             
@@ -317,13 +370,8 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
             cmd = cmd[arg]
         
         # Apply environment variables and working directory
-        if env:
-            # Merge with current environment
-            merged_env = os.environ.copy()
-            merged_env.update(env)
-            cmd = cmd.with_env(**merged_env)
-        else:
-            cmd = cmd.with_env(**os.environ)
+        # env already contains os.environ.copy() with PYTHONUNBUFFERED
+        cmd = cmd.with_env(**env)
         
         if cwd:
             cmd = cmd.with_cwd(cwd)
@@ -345,11 +393,7 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
                 )
                 
                 # Clean up temporary script if created
-                if script_path and script_path.exists():
-                    try:
-                        script_path.unlink()
-                    except Exception:
-                        pass
+                _cleanup_script(script_path)
                 
                 # Plumbum's run(retcode=None) returns (retcode, stdout, stderr) tuple
                 # Handle different possible return formats and ensure strings
@@ -366,17 +410,12 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
                         stderr = result[2] if len(result) > 2 else ""
                     
                     # Ensure stdout and stderr are strings (decode bytes if needed)
-                    if isinstance(stdout, bytes):
-                        stdout = stdout.decode('utf-8', errors='replace')
-                    if isinstance(stderr, bytes):
-                        stderr = stderr.decode('utf-8', errors='replace')
+                    stdout = _ensure_string(stdout)
+                    stderr = _ensure_string(stderr)
                 else:
                     # Fallback - treat as success with stdout
                     return_code = 0
-                    if isinstance(result, bytes):
-                        stdout = result.decode('utf-8', errors='replace')
-                    else:
-                        stdout = str(result) if result else ""
+                    stdout = _ensure_string(result)
                     stderr = ""
                 
                 success = return_code == 0
@@ -398,26 +437,17 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
                 render_error(error_msg)
                 if automation_logger:
                     automation_logger.log_error(f"{error_msg}: {original_command}")
-                # Clean up script
-                if script_path and script_path.exists():
-                    try:
-                        script_path.unlink()
-                    except Exception:
-                        pass
+                _cleanup_script(script_path)
                 return False, "", "Command timed out", 124
             
             except ProcessExecutionError as e:
                 # Command failed with non-zero exit code
-                stdout = e.stdout if hasattr(e, 'stdout') else ""
-                stderr = e.stderr if hasattr(e, 'stderr') else str(e)
+                stdout = _ensure_string(e.stdout if hasattr(e, 'stdout') else "")
+                stderr = _ensure_string(e.stderr if hasattr(e, 'stderr') else str(e))
                 return_code = e.retcode if hasattr(e, 'retcode') else 1
                 
                 # Clean up temporary script if created
-                if script_path and script_path.exists():
-                    try:
-                        script_path.unlink()
-                    except Exception:
-                        pass
+                _cleanup_script(script_path)
                 
                 # Record command execution for summary report
                 if automation_logger:
@@ -435,17 +465,13 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
         error_msg = f"Error executing command: {str(e)}"
         render_error(error_msg)
         # Also print the exception type and traceback for debugging
-        import traceback
         render_error(f"Exception type: {type(e).__name__}")
         render_error(f"Traceback: {traceback.format_exc()}")
         if automation_logger:
             automation_logger.log_error(f"{error_msg}: {command}")
         # Clean up script on error
-        if 'script_path' in locals() and script_path and script_path.exists():
-            try:
-                script_path.unlink()
-            except Exception:
-                pass
+        if 'script_path' in locals():
+            _cleanup_script(script_path)
         return False, "", str(e), 1
 
 
@@ -482,14 +508,8 @@ def _execute_command_streaming(
                 # With text=True, it should return strings, but handle bytes as fallback
                 if hasattr(process, 'stdout') and process.stdout:
                     for line in process.stdout:
-                        # Handle both bytes and strings for robustness
-                        # Even with text=True, some edge cases might return bytes
-                        if isinstance(line, bytes):
-                            line = line.decode('utf-8', errors='replace')
-                        elif not isinstance(line, str):
-                            # Convert other types to string
-                            line = str(line)
-                        # line is now guaranteed to be a string
+                        # Convert to string (handles bytes, str, and other types)
+                        line = _ensure_string(line)
                         line = line.rstrip('\n\r')
                         if line:
                             stdout_lines.append(line)
@@ -497,7 +517,6 @@ def _execute_command_streaming(
                             sys.stdout.flush()
             except Exception as e:
                 # Log the exception for debugging
-                import traceback
                 error_msg = f"Error reading stdout: {type(e).__name__}: {e}"
                 stderr_lines.append(error_msg)
                 render_error(f"{error_msg}\n{traceback.format_exc()}")
@@ -508,14 +527,8 @@ def _execute_command_streaming(
                 # With text=True, it should return strings, but handle bytes as fallback
                 if hasattr(process, 'stderr') and process.stderr:
                     for line in process.stderr:
-                        # Handle both bytes and strings for robustness
-                        # Even with text=True, some edge cases might return bytes
-                        if isinstance(line, bytes):
-                            line = line.decode('utf-8', errors='replace')
-                        elif not isinstance(line, str):
-                            # Convert other types to string
-                            line = str(line)
-                        # line is now guaranteed to be a string
+                        # Convert to string (handles bytes, str, and other types)
+                        line = _ensure_string(line)
                         line = line.rstrip('\n\r')
                         if line:
                             stderr_lines.append(line)
@@ -523,7 +536,6 @@ def _execute_command_streaming(
                             sys.stderr.flush()
             except Exception as e:
                 # Log the exception for debugging
-                import traceback
                 error_msg = f"Error reading stderr: {type(e).__name__}: {e}"
                 stderr_lines.append(error_msg)
                 render_error(f"{error_msg}\n{traceback.format_exc()}")
@@ -539,20 +551,9 @@ def _execute_command_streaming(
         
         try:
             # Poll process until it completes or times out
-            # Plumbum's process object should have poll() method
+            return_code = None
             while True:
-                try:
-                    return_code = process.poll()
-                except AttributeError:
-                    # If poll() doesn't exist, try wait() or check returncode
-                    if hasattr(process, 'returncode'):
-                        return_code = process.returncode
-                    elif hasattr(process, 'wait'):
-                        return_code = process.wait()
-                    else:
-                        # Fallback: wait a bit and check again
-                        time.sleep(0.1)
-                        continue
+                return_code = _get_process_return_code(process)
                 
                 if return_code is not None:
                     break
@@ -575,12 +576,7 @@ def _execute_command_streaming(
             render_error("Command execution timed out")
             stdout_thread.join(timeout=2)
             stderr_thread.join(timeout=2)
-            # Clean up script
-            if script_path and script_path.exists():
-                try:
-                    script_path.unlink()
-                except Exception:
-                    pass
+            _cleanup_script(script_path)
             return False, '\n'.join(stdout_lines), '\n'.join(stderr_lines), 124
         
         # Wait for threads to finish reading
@@ -589,23 +585,12 @@ def _execute_command_streaming(
         
         # Ensure we have a valid return code
         if return_code is None:
-            # If poll() didn't give us a return code, try to get it another way
-            try:
-                if hasattr(process, 'returncode'):
-                    return_code = process.returncode
-                elif hasattr(process, 'wait'):
-                    return_code = process.wait()
-                else:
-                    return_code = 0  # Default to success if we can't determine
-            except Exception:
-                return_code = 0  # Default to success on error
+            return_code = _get_process_return_code(process)
+            if return_code is None:
+                return_code = 0  # Default to success if we can't determine
         
         # Clean up temporary script if created
-        if script_path and script_path.exists():
-            try:
-                script_path.unlink()
-            except Exception:
-                pass
+        _cleanup_script(script_path)
         
         success = return_code == 0
         stdout = '\n'.join(stdout_lines)
@@ -625,16 +610,12 @@ def _execute_command_streaming(
         
     except ProcessExecutionError as e:
         # Command failed
-        stdout = e.stdout if hasattr(e, 'stdout') else '\n'.join(stdout_lines)
-        stderr = e.stderr if hasattr(e, 'stderr') else str(e)
+        stdout = _ensure_string(e.stdout if hasattr(e, 'stdout') else '\n'.join(stdout_lines))
+        stderr = _ensure_string(e.stderr if hasattr(e, 'stderr') else str(e))
         return_code = e.retcode if hasattr(e, 'retcode') else 1
         
         # Clean up temporary script on error
-        if script_path and script_path.exists():
-            try:
-                script_path.unlink()
-            except Exception:
-                pass
+        _cleanup_script(script_path)
         
         # Record error
         if automation_logger:
@@ -650,11 +631,7 @@ def _execute_command_streaming(
         
     except Exception as e:
         # Clean up temporary script on error
-        if script_path and script_path.exists():
-            try:
-                script_path.unlink()
-            except Exception:
-                pass
+        _cleanup_script(script_path)
         render_error(f"Error executing command: {str(e)}")
         return False, '\n'.join(stdout_lines), '\n'.join(stderr_lines), 1
 
