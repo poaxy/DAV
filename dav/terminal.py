@@ -16,6 +16,7 @@ from rich.panel import Panel
 from rich.box import ROUNDED
 from rich.status import Status
 from rich.syntax import Syntax
+from rich.table import Table
 from rich.text import Text
 from rich.style import Style
 
@@ -652,4 +653,107 @@ def render_dav_banner() -> None:
     # Print the banner
     console.print(banner_text)
     console.print()  # Extra blank line for spacing
+
+
+def render_plan(plan) -> None:
+    """
+    Render a plan with formatted display.
+    
+    Args:
+        plan: Plan object from plan_manager
+    """
+    from dav.plan_manager import Plan
+    
+    if not isinstance(plan, Plan):
+        return
+    
+    # Plan header
+    console.print(f"\n[bold cyan]Plan #{plan.plan_id}: {plan.title}[/bold cyan]")
+    console.print(f"[dim]Created: {plan.created_at.strftime('%Y-%m-%d %H:%M:%S')}[/dim]")
+    console.print(f"[dim]Status: {plan.status}[/dim]\n")
+    
+    if plan.description:
+        console.print(f"[bold]Description:[/bold] {plan.description}\n")
+    
+    # Steps
+    console.print(f"[bold]Steps ({len(plan.steps)}):[/bold]\n")
+    
+    for step in plan.steps:
+        # Step header
+        status_icon = {
+            "pending": "[dim]○[/dim]",
+            "completed": "[green]✓[/green]",
+            "failed": "[red]✗[/red]",
+            "skipped": "[yellow]⊘[/yellow]"
+        }.get(step.status, "○")
+        
+        console.print(f"{status_icon} [bold]Step {step.step_number}:[/bold] {step.description}")
+        
+        # Commands
+        if step.commands:
+            console.print("  [cyan]Commands:[/cyan]")
+            for cmd in step.commands:
+                syntax = Syntax(cmd, "bash", theme="monokai", line_numbers=False)
+                console.print(f"    ", end="")
+                console.print(syntax)
+        
+        # Alternatives
+        if step.alternatives:
+            console.print("  [yellow]Alternatives:[/yellow]")
+            for alt_cmd in step.alternatives:
+                syntax = Syntax(alt_cmd, "bash", theme="monokai", line_numbers=False)
+                console.print(f"    ", end="")
+                console.print(syntax)
+        
+        # Expected outcome
+        if step.expected_outcome:
+            console.print(f"  [dim]Expected: {step.expected_outcome}[/dim]")
+        
+        console.print()
+
+
+def render_plan_list(plans) -> None:
+    """
+    Render a list of plans in table format.
+    
+    Args:
+        plans: List of Plan objects
+    """
+    from dav.plan_manager import Plan
+    from rich.table import Table
+    
+    if not plans:
+        console.print("[yellow]No plans found.[/yellow]")
+        return
+    
+    table = Table(title="Stored Plans", show_header=True, header_style="bold cyan")
+    table.add_column("ID", style="cyan", width=6)
+    table.add_column("Title", style="white", width=30)
+    table.add_column("Status", style="yellow", width=12)
+    table.add_column("Steps", justify="right", width=8)
+    table.add_column("Created", style="dim", width=20)
+    
+    for plan in plans:
+        if not isinstance(plan, Plan):
+            continue
+        
+        status_color = {
+            "pending": "yellow",
+            "executing": "cyan",
+            "completed": "green",
+            "failed": "red",
+            "partial": "yellow"
+        }.get(plan.status, "white")
+        
+        table.add_row(
+            str(plan.plan_id),
+            plan.title,
+            f"[{status_color}]{plan.status}[/{status_color}]",
+            str(len(plan.steps)),
+            plan.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        )
+    
+    console.print()
+    console.print(table)
+    console.print()
 
