@@ -8,9 +8,21 @@ import sys
 import threading
 import time
 import traceback
+import subprocess
+import select
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+# PTY imports (Unix-only)
+try:
+    import pty
+    import termios
+    import struct
+    import fcntl
+    PTY_AVAILABLE = True
+except ImportError:
+    PTY_AVAILABLE = False
 
 from plumbum import local
 from plumbum.commands import ProcessExecutionError, ProcessTimedOut
@@ -271,7 +283,7 @@ def extract_commands(text: str) -> List[str]:
     return unique_commands
 
 
-def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = None, stream_output: bool = True, automation_mode: bool = False, automation_logger: Optional[Any] = None) -> Tuple[bool, str, str, int]:
+def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = None, stream_output: bool = True, automation_mode: bool = False, automation_logger: Optional[Any] = None, direct_passthrough: bool = False, use_pty: bool = False) -> Tuple[bool, str, str, int]:
     """
     Execute a command securely with real-time output streaming.
     
@@ -280,6 +292,8 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
         confirm: Whether to ask for confirmation
         cwd: Working directory for command execution
         stream_output: If True, stream output in real-time; if False, capture and return
+        direct_passthrough: If True, pass stdout/stderr directly to terminal (preserves formatting/colors)
+        use_pty: If True, use PTY for execution (preserves TTY characteristics like colors and column formatting)
     
     Returns:
         (success, stdout, stderr, return_code)
@@ -356,6 +370,25 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
         
         # Store original command for logging
         original_command = command
+
+        # If PTY is requested, try PTY execution first
+        if use_pty and stream_output and sys.platform != 'win32':
+            try:
+                result = _execute_command_with_pty(
+                    command_list,
+                    original_command,
+                    cwd=cwd,
+                    env=env,
+                    script_path=script_path,
+                    automation_logger=automation_logger
+                )
+                # If PTY execution succeeded (didn't return None), return the result
+                if result is not None:
+                    return result
+                # If PTY returned None, fall through to regular execution
+            except Exception as e:
+                # If PTY execution fails, fall back to regular execution
+                render_warning(f"PTY execution failed, falling back to regular execution: {str(e)}")
 
         # Build plumbum command from command_list
         if not command_list:
@@ -473,6 +506,191 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
         if 'script_path' in locals():
             _cleanup_script(script_path)
         return False, "", str(e), 1
+
+
+def _execute_command_with_pty(
+    command_list: List[str],
+    original_command: str,
+    cwd: Optional[str] = None,
+    env: Optional[Dict[str, str]] = None,
+    script_path: Optional[Path] = None,
+    automation_logger: Optional[Any] = None
+) -> Optional[Tuple[bool, str, str, int]]:
+    """
+    Execute a command using PTY to preserve TTY characteristics (colors, column formatting).
+    
+    Args:
+        command_list: List of command and arguments
+        original_command: Original command string for logging
+        cwd: Working directory for command execution
+        env: Environment variables
+        script_path: Path to temporary script if created (for cleanup)
+        automation_logger: Optional automation logger
+    
+    Returns:
+        (success, stdout, stderr, return_code)
+    """
+    if not PTY_AVAILABLE:
+        # Fall back to regular execution if PTY not available (e.g., Windows)
+        render_warning("PTY not available on this platform, falling back to regular execution")
+        return None  # Signal to use fallback
+    
+    master_fd = None
+    slave_fd = None
+    process = None
+    stdout_buffer = []
+    stderr_buffer = []
+    
+    try:
+        # Create PTY pair
+        master_fd, slave_fd = pty.openpty()
+        
+        # Set terminal size to match current terminal (for proper column formatting)
+        try:
+            rows, cols = os.get_terminal_size()
+            # Set PTY window size using TIOCSWINSZ ioctl
+            winsize = struct.pack('HHHH', rows, cols, 0, 0)
+            fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
+        except (OSError, AttributeError):
+            # If we can't get terminal size, continue with default PTY size
+            pass
+        
+        # Spawn process with slave PTY as stdout and stderr
+        # Using same PTY for both stdout and stderr (simpler, stderr will be mixed)
+        process = subprocess.Popen(
+            command_list,
+            stdout=slave_fd,
+            stderr=slave_fd,  # Same PTY for stderr (mixed with stdout)
+            stdin=subprocess.DEVNULL,
+            cwd=cwd,
+            env=env,
+            preexec_fn=os.setsid  # New session for proper TTY handling
+        )
+        
+        # Close slave_fd in parent process (child has its own copy)
+        os.close(slave_fd)
+        slave_fd = None
+        
+        # Read from master PTY and write to both stdout and capture buffer
+        start_time = time.time()
+        output_buffer = []
+        
+        # Set master_fd to non-blocking mode
+        flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
+        fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        
+        while True:
+            # Check if process has finished
+            return_code = process.poll()
+            if return_code is not None:
+                # Process finished, read any remaining data
+                # Read in a loop until no more data is available
+                try:
+                    # Set a small timeout for final reads
+                    while True:
+                        ready, _, _ = select.select([master_fd], [], [], 0.1)
+                        if not ready:
+                            # No more data available
+                            break
+                        data = os.read(master_fd, 4096)
+                        if not data:
+                            break
+                        output_buffer.append(data)
+                        # Write to stdout
+                        sys.stdout.buffer.write(data)
+                        sys.stdout.buffer.flush()
+                except (OSError, ValueError):
+                    # No more data to read or error
+                    pass
+                break
+            
+            # Check for timeout
+            if time.time() - start_time > COMMAND_TIMEOUT_SECONDS:
+                process.kill()
+                render_error("Command execution timed out")
+                if automation_logger:
+                    automation_logger.log_error(f"Command timed out: {original_command}")
+                return False, "", "Command timed out", 124
+            
+            # Try to read from PTY (non-blocking)
+            try:
+                ready, _, _ = select.select([master_fd], [], [], 0.1)
+                if ready:
+                    data = os.read(master_fd, 4096)
+                    if data:
+                        output_buffer.append(data)
+                        # Write directly to stdout to preserve colors/formatting
+                        sys.stdout.buffer.write(data)
+                        sys.stdout.buffer.flush()
+            except (OSError, ValueError):
+                # No data available or error, continue polling
+                # ValueError can occur if file descriptor is invalid
+                pass
+        
+        # Decode all output
+        all_output = b''.join(output_buffer)
+        try:
+            decoded_output = all_output.decode('utf-8', errors='replace')
+        except Exception:
+            decoded_output = all_output.decode('latin-1', errors='replace')
+        
+        # Since we used the same PTY for both stdout and stderr, we can't separate them
+        # For now, put everything in stdout and leave stderr empty
+        # This is acceptable for /cmd mode where the user sees the output directly
+        stdout = decoded_output
+        stderr = ""
+        
+        # Clean up
+        if master_fd is not None:
+            try:
+                os.close(master_fd)
+            except OSError:
+                pass
+        
+        # Clean up temporary script if created
+        _cleanup_script(script_path)
+        
+        success = return_code == 0
+        
+        # Record command execution for summary
+        if automation_logger:
+            automation_logger.record_command_execution(
+                command=original_command,
+                success=success,
+                return_code=return_code,
+                stdout=stdout,
+                stderr=stderr
+            )
+        
+        return success, stdout, stderr, return_code
+        
+    except Exception as e:
+        # Clean up on error
+        if slave_fd is not None:
+            try:
+                os.close(slave_fd)
+            except OSError:
+                pass
+        if master_fd is not None:
+            try:
+                os.close(master_fd)
+            except OSError:
+                pass
+        if process is not None:
+            try:
+                process.kill()
+            except OSError:
+                pass
+        
+        _cleanup_script(script_path)
+        
+        error_msg = f"Error executing command with PTY: {str(e)}"
+        render_error(error_msg)
+        if automation_logger:
+            automation_logger.log_error(f"{error_msg}: {original_command}")
+        
+        # Return None to signal fallback to regular execution
+        return None
 
 
 def _execute_command_streaming(
