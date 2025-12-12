@@ -844,7 +844,6 @@ def _handle_command_execution(command: str, command_outputs: List[Dict[str, Any]
             confirm=False,
             stream_output=True,
             automation_mode=False,
-            use_pty=True,  # Enable PTY for /cmd mode to preserve colors and column formatting
         )
         
         _store_command_output(command, stdout, stderr, success, command_outputs)
