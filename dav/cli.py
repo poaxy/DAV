@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import sys
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -913,8 +912,7 @@ def _process_query_with_ai(query: str, ai_backend, session_manager,
     console.print()
 
 
-def _handle_app_function(func_name: str, current_mode: str, command_outputs: List[Dict[str, Any]], 
-                         plan_manager=None, ai_backend=None, session_manager=None, execute=False, auto_confirm=False) -> Tuple[Optional[str], bool]:
+def _handle_app_function(func_name: str, current_mode: str, command_outputs: List[Dict[str, Any]]) -> Tuple[Optional[str], bool]:
     """
     Handle app functions (commands starting with /).
     
@@ -922,18 +920,13 @@ def _handle_app_function(func_name: str, current_mode: str, command_outputs: Lis
         func_name: Function name (without / prefix)
         current_mode: Current mode ("interactive" or "command")
         command_outputs: List of command outputs (cleared on mode switch)
-        plan_manager: PlanManager instance (optional)
-        ai_backend: AIBackend instance (optional)
-        session_manager: SessionManager instance (optional)
-        execute: Execute mode flag (optional)
-        auto_confirm: Auto confirm flag (optional)
     
     Returns:
         Tuple of (new_mode, should_exit)
         - new_mode: New mode to switch to, or None if no change
         - should_exit: True if should exit interactive mode
     """
-    from dav.terminal import render_error, render_info, render_dav_banner, render_plan, render_plan_list
+    from dav.terminal import render_error, render_info, render_dav_banner
     
     func_name = func_name.lower().strip()
     
@@ -950,8 +943,8 @@ def _handle_app_function(func_name: str, current_mode: str, command_outputs: Lis
         render_dav_banner()
         console.print("[bold green]Dav Interactive Mode[/bold green]")
         console.print("Type 'exit' or 'quit' to exit, 'clear' to clear session")
-        console.print("Use '>' prefix to execute commands, '/' for functions (/exit, /cmd, /dav, /int, /clear, /plan)\n")
-        render_info("Entering command mode. Commands can be run directly without '>' prefix. Use '/dav' to talk to Dav or '/plan' to create plans.")
+        console.print("Use '>' prefix to execute commands, '/' for functions (/exit, /cmd, /dav, /int, /clear)\n")
+        render_info("Entering command mode. Commands can be run directly without '>' prefix. Use '/dav' to talk to Dav.")
         return "command", False
     
     elif func_name == "dav":
@@ -972,7 +965,7 @@ def _handle_app_function(func_name: str, current_mode: str, command_outputs: Lis
         render_dav_banner()
         console.print("[bold green]Dav Interactive Mode[/bold green]")
         console.print("Type 'exit' or 'quit' to exit, 'clear' to clear session")
-        console.print("Use '>' prefix to execute commands, '/' for functions (/exit, /cmd, /dav, /int, /clear, /plan)\n")
+        console.print("Use '>' prefix to execute commands, '/' for functions (/exit, /cmd, /dav, /int, /clear)\n")
         render_info("Switching to interactive mode.")
         return "interactive", False
     
@@ -982,98 +975,16 @@ def _handle_app_function(func_name: str, current_mode: str, command_outputs: Lis
         render_dav_banner()
         console.print("[bold green]Dav Interactive Mode[/bold green]")
         console.print("Type 'exit' or 'quit' to exit, 'clear' to clear session")
-        console.print("Use '>' prefix to execute commands, '/' for functions (/exit, /cmd, /dav, /int, /clear, /plan)\n")
+        console.print("Use '>' prefix to execute commands, '/' for functions (/exit, /cmd, /dav, /int, /clear)\n")
         return None, False
     
-    elif func_name.startswith("plan"):
-        # Handle /plan commands
-        if not plan_manager:
-            render_error("Plan manager not available")
-            return None, False
-        
-        # Parse plan command: /plan <subcommand> <args>
-        parts = func_name.split(None, 1)
-        subcommand = parts[1] if len(parts) > 1 else ""
-        
-        if not subcommand:
-            render_error("Usage: /plan <query> or /plan list or /plan execute <id|previous>")
-            return None, False
-        
-        # Check for subcommands
-        if subcommand.startswith("list"):
-            # List all plans
-            plans = plan_manager.list_plans()
-            render_plan_list(plans)
-            return None, False
-        
-        elif subcommand.startswith("execute"):
-            # Execute a plan: /plan execute <id|previous>
-            execute_parts = subcommand.split(None, 1)
-            plan_ref = execute_parts[1] if len(execute_parts) > 1 else "previous"
-            
-            # Get plan
-            if plan_ref.lower() == "previous":
-                plan = plan_manager.get_latest_plan()
-                if not plan:
-                    render_error("No previous plan found")
-                    return None, False
-                plan_id = plan.plan_id
-            else:
-                try:
-                    plan_id = int(plan_ref)
-                except ValueError:
-                    render_error(f"Invalid plan ID: {plan_ref}")
-                    return None, False
-                plan = plan_manager.get_plan(plan_id)
-                if not plan:
-                    render_error(f"Plan {plan_id} not found")
-                    return None, False
-            
-            # Execute plan
-            try:
-                from dav.context import build_context
-                context_data = build_context(query=None)
-                plan_manager.execute_plan(
-                    plan_id=plan_id,
-                    ai_backend=ai_backend,
-                    session_manager=session_manager,
-                    execute=execute,
-                    auto_confirm=auto_confirm,
-                    context_data=context_data
-                )
-            except Exception as e:
-                render_error(f"Error executing plan: {str(e)}")
-            
-            return None, False
-        
-        else:
-            # Create new plan: /plan <query>
-            query = subcommand
-            if not query:
-                render_error("Please provide a query for plan generation")
-                return None, False
-            
-            try:
-                render_info(f"[cyan]Generating plan for: {query}[/cyan]\n")
-                # Build context for plan generation
-                from dav.context import build_context
-                context_data = build_context(query=query)
-                plan = plan_manager.create_plan(query, ai_backend, context_data=context_data)
-                render_info(f"[green]✓ Plan #{plan.plan_id} created: {plan.title}[/green]\n")
-                render_plan(plan)
-            except Exception as e:
-                render_error(f"Error creating plan: {str(e)}")
-            
-            return None, False
-    
     else:
-        render_error(f"Unknown function: /{func_name}. Available functions: /exit, /cmd, /dav, /int, /clear, /plan")
+        render_error(f"Unknown function: /{func_name}. Available functions: /exit, /cmd, /dav, /int, /clear")
         return None, False
 
 
 def _route_input(user_input: str, current_mode: str, ai_backend, session_manager, 
-                 execute: bool, auto_confirm: bool, command_outputs: List[Dict[str, Any]], 
-                 plan_manager=None) -> Tuple[Optional[str], bool]:
+                 execute: bool, auto_confirm: bool, command_outputs: List[Dict[str, Any]]) -> Tuple[Optional[str], bool]:
     """
     Route user input based on prefix and current mode.
     
@@ -1085,7 +996,6 @@ def _route_input(user_input: str, current_mode: str, ai_backend, session_manager
         execute: Execute mode flag
         auto_confirm: Auto confirm flag
         command_outputs: List of command outputs for Dav context
-        plan_manager: PlanManager instance (optional)
     
     Returns:
         Tuple of (new_mode, should_exit)
@@ -1111,86 +1021,17 @@ def _route_input(user_input: str, current_mode: str, ai_backend, session_manager
         func_name = parts[0] if parts else ""
         remaining_text = parts[1] if len(parts) > 1 else None
         
-        # Special handling for /plan - it needs the full input
-        if func_name == "plan":
-            func_name = user_input[1:].strip()  # Keep full command including subcommand
-        
-        # Warn if other functions have extra text (except /dav and /plan which use it)
-        if remaining_text and func_name not in ["dav", "plan"] and not func_name.startswith("plan"):
+        # Warn if other functions have extra text (except /dav which uses it as query)
+        if remaining_text and func_name != "dav":
             render_warning(f"Extra text after /{func_name} will be ignored. Use '/dav <text>' to ask Dav a question.")
         
         # Handle the function
-        new_mode, should_exit = _handle_app_function(
-            func_name, current_mode, command_outputs,
-            plan_manager=plan_manager,
-            ai_backend=ai_backend,
-            session_manager=session_manager,
-            execute=execute,
-            auto_confirm=auto_confirm
-        )
+        new_mode, should_exit = _handle_app_function(func_name, current_mode, command_outputs)
         
         # Special handling for /dav with additional text: process query without changing mode
         if func_name == "dav" and remaining_text and new_mode is None:
             query = remaining_text.strip()
             if query:
-                # Check if this is a plan execution request
-                if plan_manager:
-                    query_lower = query.lower().strip()
-                    plan_execution_patterns = [
-                        r"execute\s+(?:the\s+)?previous\s+plan",
-                        r"execute\s+plan\s+(\d+)",
-                        r"run\s+plan\s+(\d+)",
-                        r"apply\s+(?:the\s+)?previous\s+plan",
-                        r"run\s+(?:the\s+)?previous\s+plan",
-                    ]
-                    
-                    for pattern in plan_execution_patterns:
-                        match = re.search(pattern, query_lower)
-                        if match:
-                            # Extract plan ID if present
-                            plan_ref = match.group(1) if match.groups() else "previous"
-                            
-                            # Get plan
-                            if plan_ref == "previous":
-                                plan = plan_manager.get_latest_plan()
-                                if not plan:
-                                    from dav.terminal import render_error
-                                    render_error("No previous plan found")
-                                    return None, False
-                                plan_id = plan.plan_id
-                            else:
-                                try:
-                                    plan_id = int(plan_ref)
-                                except ValueError:
-                                    from dav.terminal import render_error
-                                    render_error(f"Invalid plan ID: {plan_ref}")
-                                    return None, False
-                                plan = plan_manager.get_plan(plan_id)
-                                if not plan:
-                                    from dav.terminal import render_error
-                                    render_error(f"Plan {plan_id} not found")
-                                    return None, False
-                            
-                            # Execute plan
-                            try:
-                                from dav.context import build_context
-                                from dav.terminal import render_error
-                                context_data = build_context(query=None)
-                                plan_manager.execute_plan(
-                                    plan_id=plan_id,
-                                    ai_backend=ai_backend,
-                                    session_manager=session_manager,
-                                    execute=execute,
-                                    auto_confirm=auto_confirm,
-                                    context_data=context_data
-                                )
-                            except Exception as e:
-                                from dav.terminal import render_error
-                                render_error(f"Error executing plan: {str(e)}")
-                            
-                            return None, False
-                
-                # Not a plan execution, process as normal query
                 _process_query_with_ai(
                     query, ai_backend, session_manager,
                     execute, auto_confirm, command_outputs
@@ -1199,63 +1040,6 @@ def _route_input(user_input: str, current_mode: str, ai_backend, session_manager
             return None, False
         
         return new_mode, should_exit
-    
-    # Check for natural language plan execution requests
-    if plan_manager:
-        user_input_lower = user_input.lower().strip()
-        plan_execution_patterns = [
-            r"execute\s+(?:the\s+)?previous\s+plan",
-            r"execute\s+plan\s+(\d+)",
-            r"run\s+plan\s+(\d+)",
-            r"apply\s+(?:the\s+)?previous\s+plan",
-            r"run\s+(?:the\s+)?previous\s+plan",
-        ]
-        
-        for pattern in plan_execution_patterns:
-            match = re.search(pattern, user_input_lower)
-            if match:
-                # Extract plan ID if present
-                plan_ref = match.group(1) if match.groups() else "previous"
-                
-                # Get plan
-                if plan_ref == "previous":
-                    plan = plan_manager.get_latest_plan()
-                    if not plan:
-                        from dav.terminal import render_error
-                        render_error("No previous plan found")
-                        return None, False
-                    plan_id = plan.plan_id
-                else:
-                    try:
-                        plan_id = int(plan_ref)
-                    except ValueError:
-                        from dav.terminal import render_error
-                        render_error(f"Invalid plan ID: {plan_ref}")
-                        return None, False
-                    plan = plan_manager.get_plan(plan_id)
-                    if not plan:
-                        from dav.terminal import render_error
-                        render_error(f"Plan {plan_id} not found")
-                        return None, False
-                
-                # Execute plan
-                try:
-                    from dav.context import build_context
-                    from dav.terminal import render_error
-                    context_data = build_context(query=None)
-                    plan_manager.execute_plan(
-                        plan_id=plan_id,
-                        ai_backend=ai_backend,
-                        session_manager=session_manager,
-                        execute=execute,
-                        auto_confirm=auto_confirm,
-                        context_data=context_data
-                    )
-                except Exception as e:
-                    from dav.terminal import render_error
-                    render_error(f"Error executing plan: {str(e)}")
-                
-                return None, False
     
     # Regular text input
     if current_mode == "command":
@@ -1278,7 +1062,6 @@ def run_interactive_mode(ai_backend: AIBackend,
     from dav.terminal import render_error, render_streaming_response_with_loading, render_context_status, render_warning, render_dav_banner
     from dav.context_tracker import ContextTracker
     from dav.context import format_context_for_prompt, build_context
-    from dav.plan_manager import PlanManager
     
     # Clear the terminal screen for a fresh start
     console.clear()
@@ -1286,15 +1069,12 @@ def run_interactive_mode(ai_backend: AIBackend,
     # Initialize context tracker
     context_tracker = ContextTracker(backend=ai_backend.backend, model=ai_backend.model)
     
-    # Initialize plan manager
-    plan_manager = PlanManager()
-    
     # Display ASCII art banner
     render_dav_banner()
     
     console.print("[bold green]Dav Interactive Mode[/bold green]")
     console.print("Type 'exit' or 'quit' to exit, 'clear' to clear session")
-    console.print("Use '>' prefix to execute commands, '/' for functions (/exit, /cmd, /dav, /int, /clear, /plan)\n")
+    console.print("Use '>' prefix to execute commands, '/' for functions (/exit, /cmd, /dav, /int, /clear)\n")
     
     # Track current mode: "interactive" (default) or "command"
     current_mode = "interactive"
@@ -1353,7 +1133,6 @@ def run_interactive_mode(ai_backend: AIBackend,
                 execute,
                 auto_confirm,
                 command_outputs,
-                plan_manager=plan_manager,
             )
             
             # Handle mode transition
