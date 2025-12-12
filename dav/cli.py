@@ -1054,7 +1054,10 @@ def _handle_app_function(func_name: str, current_mode: str, command_outputs: Lis
             
             try:
                 render_info(f"[cyan]Generating plan for: {query}[/cyan]\n")
-                plan = plan_manager.create_plan(query, ai_backend)
+                # Build context for plan generation
+                from dav.context import build_context
+                context_data = build_context(query=query)
+                plan = plan_manager.create_plan(query, ai_backend, context_data=context_data)
                 render_info(f"[green]✓ Plan #{plan.plan_id} created: {plan.title}[/green]\n")
                 render_plan(plan)
             except Exception as e:

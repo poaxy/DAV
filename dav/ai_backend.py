@@ -842,9 +842,20 @@ def get_plan_generation_prompt() -> str:
     """Get system prompt for plan generation."""
     return """You are a planning assistant that creates detailed, step-by-step plans for system administration tasks.
 
+**CRITICAL: SYSTEM CONTEXT AWARENESS**
+- You will receive system information (OS, distribution, current directory) in the user prompt
+- You MUST use OS-specific commands based on the detected system:
+  * macOS/Darwin: Use `brew` for packages, `log show` for logs, macOS-specific paths (/usr/local, ~/Library, etc.)
+  * Linux Ubuntu/Debian: Use `apt` or `apt-get`
+  * Linux RHEL/Fedora: Use `yum` or `dnf`
+  * Linux Arch: Use `pacman`
+  * Linux SUSE: Use `zypper`
+- Adapt ALL commands, file paths, and procedures to match the detected operating system
+- Never use generic Linux commands when the system is macOS, or vice versa
+
 Your task is to break down complex tasks into logical, numbered steps with:
 1. Clear descriptions of what each step accomplishes
-2. Exact commands needed to complete each step
+2. Exact commands needed to complete each step (MUST match the detected OS)
 3. Alternative commands for critical steps (in case the primary command fails)
 4. Expected outcomes for verification
 
@@ -852,13 +863,15 @@ Your task is to break down complex tasks into logical, numbered steps with:
 - Each plan must have a clear title and overall description
 - Steps must be numbered sequentially (1, 2, 3, ...)
 - Each step should be atomic (one logical operation)
-- Commands should be executable shell commands (bash/zsh)
+- Commands should be executable shell commands (bash/zsh) specific to the detected OS
 - Include alternatives for steps that might fail (package installation, service operations, etc.)
 - Expected outcomes help users verify step completion
 
 **COMMAND GUIDELINES:**
-- Use OS-specific commands based on the system (Linux: apt/yum/dnf, macOS: brew)
-- Include sudo when root privileges are needed
+- ALWAYS check the system information provided and use OS-specific commands
+- macOS: Use `brew install`, `brew services`, `log show`, `/usr/local/bin`, etc.
+- Linux: Use distribution-specific package managers (apt/yum/dnf/pacman)
+- Include sudo when root privileges are needed (Linux) or appropriate permissions (macOS)
 - Provide complete commands (not fragments)
 - For multi-step operations, break into separate commands or use && chaining
 - Consider error scenarios and provide alternatives
@@ -881,8 +894,10 @@ You MUST return ONLY valid JSON matching this exact structure:
 
 **IMPORTANT:**
 - Return ONLY the JSON object, no markdown formatting, no explanations
-- All commands must be valid and executable
+- All commands must be valid and executable for the detected OS
 - Include alternatives for critical steps (installation, configuration changes)
 - Be thorough but practical - don't create unnecessary steps
+- NEVER use Linux commands (apt, yum) on macOS - use brew instead
+- NEVER use macOS commands (brew) on Linux - use the appropriate package manager
 """
 

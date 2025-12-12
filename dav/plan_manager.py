@@ -42,26 +42,42 @@ class PlanManager:
         self.plans: Dict[int, Plan] = {}
         self._next_id: int = 1
     
-    def create_plan(self, query: str, ai_backend: "AIBackend") -> Plan:
+    def create_plan(self, query: str, ai_backend: "AIBackend", context_data: Optional[Dict] = None) -> Plan:
         """
         Generate a plan from a user query using AI.
         
         Args:
             query: User's query/question
             ai_backend: AI backend instance
+            context_data: Optional context data dictionary (OS info, directory, etc.)
             
         Returns:
             Created Plan object
         """
         # Get plan generation prompt
         from dav.ai_backend import get_plan_generation_prompt
+        from dav.context import format_context_for_prompt, build_context
+        
+        # Build context if not provided
+        if context_data is None:
+            context_data = build_context(query=query)
+        
+        # Format context for prompt
+        context_str = format_context_for_prompt(context_data)
         
         system_prompt = get_plan_generation_prompt()
-        user_prompt = f"""Create a comprehensive, step-by-step plan for: {query}
+        user_prompt = f"""{context_str}
+
+Create a comprehensive, step-by-step plan for: {query}
+
+**CRITICAL: Use the system information provided above to generate OS-specific commands.**
+- If the system is macOS/Darwin: use `brew`, `log show`, macOS-specific paths
+- If the system is Linux: use `apt`/`yum`/`dnf`/`pacman` based on the distribution
+- Adapt all commands, paths, and procedures to match the detected operating system
 
 Break down the task into logical, numbered steps. For each step:
 1. Provide a clear description of what needs to be done
-2. Include the exact commands needed (as a list)
+2. Include the exact commands needed (as a list) - MUST match the detected OS
 3. For critical steps, provide alternative commands if the first fails
 4. Describe the expected outcome
 
