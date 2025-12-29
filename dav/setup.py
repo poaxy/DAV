@@ -81,16 +81,32 @@ def run_setup() -> None:
 OPENAI_API_KEY={api_key}
 DAV_BACKEND=openai
 DAV_DEFAULT_MODEL=gpt-4-turbo-preview
+# DAV_OPENAI_MODEL=gpt-4-turbo-preview  # Override default OpenAI model
 
-# Optional: Anthropic Configuration (if you want to switch later)
+# Optional: Anthropic Configuration (if you want to switch later or enable failover)
 # ANTHROPIC_API_KEY=your_anthropic_api_key_here
 # DAV_ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+
+# Optional: Gemini Configuration (if you want to switch later or enable failover)
+# GEMINI_API_KEY=your_gemini_api_key_here
+# GOOGLE_API_KEY=your_google_api_key_here  # Alternative to GEMINI_API_KEY
+# DAV_GEMINI_MODEL=gemini-1.5-pro-latest
 
 # Permissions
 DAV_ALLOW_EXECUTE=false
 
 # Sessions
 DAV_SESSION_DIR=~/.dav/sessions
+
+# Context Management (optional)
+# DAV_MAX_STDIN_CHARS=32000  # Maximum stdin characters to capture
+# DAV_MAX_CONTEXT_TOKENS=80000  # Maximum tokens for context window
+# DAV_MAX_CONTEXT_MESSAGES=100  # Maximum messages to include in context
+
+# Automation Settings (optional)
+# DAV_AUTOMATION_SUDO_METHOD=sudoers  # Options: sudoers, root
+# DAV_AUTOMATION_LOG_DIR=~/.dav/logs  # Directory for automation logs
+# DAV_AUTOMATION_LOG_RETENTION_DAYS=30  # Days to retain automation logs
 """
     elif backend == "anthropic":
         env_content = f"""# Dav Configuration
@@ -100,16 +116,32 @@ DAV_SESSION_DIR=~/.dav/sessions
 ANTHROPIC_API_KEY={api_key}
 DAV_BACKEND=anthropic
 DAV_DEFAULT_MODEL=claude-3-5-sonnet-20241022
+# DAV_ANTHROPIC_MODEL=claude-3-5-sonnet-20241022  # Override default Anthropic model
 
-# Optional: OpenAI Configuration (if you want to switch later)
+# Optional: OpenAI Configuration (if you want to switch later or enable failover)
 # OPENAI_API_KEY=your_openai_api_key_here
 # DAV_OPENAI_MODEL=gpt-4-turbo-preview
+
+# Optional: Gemini Configuration (if you want to switch later or enable failover)
+# GEMINI_API_KEY=your_gemini_api_key_here
+# GOOGLE_API_KEY=your_google_api_key_here  # Alternative to GEMINI_API_KEY
+# DAV_GEMINI_MODEL=gemini-1.5-pro-latest
 
 # Permissions
 DAV_ALLOW_EXECUTE=false
 
 # Sessions
 DAV_SESSION_DIR=~/.dav/sessions
+
+# Context Management (optional)
+# DAV_MAX_STDIN_CHARS=32000  # Maximum stdin characters to capture
+# DAV_MAX_CONTEXT_TOKENS=80000  # Maximum tokens for context window
+# DAV_MAX_CONTEXT_MESSAGES=100  # Maximum messages to include in context
+
+# Automation Settings (optional)
+# DAV_AUTOMATION_SUDO_METHOD=sudoers  # Options: sudoers, root
+# DAV_AUTOMATION_LOG_DIR=~/.dav/logs  # Directory for automation logs
+# DAV_AUTOMATION_LOG_RETENTION_DAYS=30  # Days to retain automation logs
 """
     else:  # gemini
         env_content = f"""# Dav Configuration
@@ -121,10 +153,13 @@ GEMINI_API_KEY={api_key}
 # GOOGLE_API_KEY={api_key}
 DAV_BACKEND=gemini
 DAV_DEFAULT_MODEL=gemini-1.5-pro-latest
+# DAV_GEMINI_MODEL=gemini-1.5-pro-latest  # Override default Gemini model
 
-# Optional: OpenAI / Anthropic Configuration (if you want to switch later)
+# Optional: OpenAI Configuration (if you want to switch later or enable failover)
 # OPENAI_API_KEY=your_openai_api_key_here
 # DAV_OPENAI_MODEL=gpt-4-turbo-preview
+
+# Optional: Anthropic Configuration (if you want to switch later or enable failover)
 # ANTHROPIC_API_KEY=your_anthropic_api_key_here
 # DAV_ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
 
@@ -133,6 +168,16 @@ DAV_ALLOW_EXECUTE=false
 
 # Sessions
 DAV_SESSION_DIR=~/.dav/sessions
+
+# Context Management (optional)
+# DAV_MAX_STDIN_CHARS=32000  # Maximum stdin characters to capture
+# DAV_MAX_CONTEXT_TOKENS=80000  # Maximum tokens for context window
+# DAV_MAX_CONTEXT_MESSAGES=100  # Maximum messages to include in context
+
+# Automation Settings (optional)
+# DAV_AUTOMATION_SUDO_METHOD=sudoers  # Options: sudoers, root
+# DAV_AUTOMATION_LOG_DIR=~/.dav/logs  # Directory for automation logs
+# DAV_AUTOMATION_LOG_RETENTION_DAYS=30  # Days to retain automation logs
 """
     
     try:
@@ -292,12 +337,32 @@ def run_root_installation() -> None:
 OPENAI_API_KEY={api_key}
 DAV_BACKEND=openai
 DAV_DEFAULT_MODEL=gpt-4-turbo-preview
+# DAV_OPENAI_MODEL=gpt-4-turbo-preview  # Override default OpenAI model
+
+# Optional: Anthropic Configuration (if you want to switch later or enable failover)
+# ANTHROPIC_API_KEY=your_anthropic_api_key_here
+# DAV_ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+
+# Optional: Gemini Configuration (if you want to switch later or enable failover)
+# GEMINI_API_KEY=your_gemini_api_key_here
+# GOOGLE_API_KEY=your_google_api_key_here  # Alternative to GEMINI_API_KEY
+# DAV_GEMINI_MODEL=gemini-1.5-pro-latest
 
 # Permissions
 DAV_ALLOW_EXECUTE=false
 
 # Sessions
 DAV_SESSION_DIR=/root/.dav/sessions
+
+# Context Management (optional)
+# DAV_MAX_STDIN_CHARS=32000  # Maximum stdin characters to capture
+# DAV_MAX_CONTEXT_TOKENS=80000  # Maximum tokens for context window
+# DAV_MAX_CONTEXT_MESSAGES=100  # Maximum messages to include in context
+
+# Automation Settings (optional)
+# DAV_AUTOMATION_SUDO_METHOD=sudoers  # Options: sudoers, root
+# DAV_AUTOMATION_LOG_DIR=/root/.dav/logs  # Directory for automation logs
+# DAV_AUTOMATION_LOG_RETENTION_DAYS=30  # Days to retain automation logs
 """
         elif backend == "anthropic":
             env_content = f"""# Dav Configuration for root user
@@ -307,12 +372,32 @@ DAV_SESSION_DIR=/root/.dav/sessions
 ANTHROPIC_API_KEY={api_key}
 DAV_BACKEND=anthropic
 DAV_DEFAULT_MODEL=claude-3-5-sonnet-20241022
+# DAV_ANTHROPIC_MODEL=claude-3-5-sonnet-20241022  # Override default Anthropic model
+
+# Optional: OpenAI Configuration (if you want to switch later or enable failover)
+# OPENAI_API_KEY=your_openai_api_key_here
+# DAV_OPENAI_MODEL=gpt-4-turbo-preview
+
+# Optional: Gemini Configuration (if you want to switch later or enable failover)
+# GEMINI_API_KEY=your_gemini_api_key_here
+# GOOGLE_API_KEY=your_google_api_key_here  # Alternative to GEMINI_API_KEY
+# DAV_GEMINI_MODEL=gemini-1.5-pro-latest
 
 # Permissions
 DAV_ALLOW_EXECUTE=false
 
 # Sessions
 DAV_SESSION_DIR=/root/.dav/sessions
+
+# Context Management (optional)
+# DAV_MAX_STDIN_CHARS=32000  # Maximum stdin characters to capture
+# DAV_MAX_CONTEXT_TOKENS=80000  # Maximum tokens for context window
+# DAV_MAX_CONTEXT_MESSAGES=100  # Maximum messages to include in context
+
+# Automation Settings (optional)
+# DAV_AUTOMATION_SUDO_METHOD=sudoers  # Options: sudoers, root
+# DAV_AUTOMATION_LOG_DIR=/root/.dav/logs  # Directory for automation logs
+# DAV_AUTOMATION_LOG_RETENTION_DAYS=30  # Days to retain automation logs
 """
         else:
             env_content = f"""# Dav Configuration for root user
@@ -324,12 +409,31 @@ GEMINI_API_KEY={api_key}
 # GOOGLE_API_KEY={api_key}
 DAV_BACKEND=gemini
 DAV_DEFAULT_MODEL=gemini-1.5-pro-latest
+# DAV_GEMINI_MODEL=gemini-1.5-pro-latest  # Override default Gemini model
+
+# Optional: OpenAI Configuration (if you want to switch later or enable failover)
+# OPENAI_API_KEY=your_openai_api_key_here
+# DAV_OPENAI_MODEL=gpt-4-turbo-preview
+
+# Optional: Anthropic Configuration (if you want to switch later or enable failover)
+# ANTHROPIC_API_KEY=your_anthropic_api_key_here
+# DAV_ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
 
 # Permissions
 DAV_ALLOW_EXECUTE=false
 
 # Sessions
 DAV_SESSION_DIR=/root/.dav/sessions
+
+# Context Management (optional)
+# DAV_MAX_STDIN_CHARS=32000  # Maximum stdin characters to capture
+# DAV_MAX_CONTEXT_TOKENS=80000  # Maximum tokens for context window
+# DAV_MAX_CONTEXT_MESSAGES=100  # Maximum messages to include in context
+
+# Automation Settings (optional)
+# DAV_AUTOMATION_SUDO_METHOD=sudoers  # Options: sudoers, root
+# DAV_AUTOMATION_LOG_DIR=/root/.dav/logs  # Directory for automation logs
+# DAV_AUTOMATION_LOG_RETENTION_DAYS=30  # Days to retain automation logs
 """
         
         # Write as root
