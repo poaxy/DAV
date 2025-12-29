@@ -27,7 +27,7 @@ class ContextTracker:
         Initialize context tracker.
         
         Args:
-            backend: AI backend ("openai" or "anthropic")
+            backend: AI backend ("openai", "anthropic", or "gemini")
             model: Model name
         """
         self.backend = backend
@@ -42,6 +42,8 @@ class ContextTracker:
             return "gpt-4-turbo-preview"
         elif self.backend == "anthropic":
             return "claude-3-5-sonnet-20241022"
+        elif self.backend == "gemini":
+            return "gemini-1.5-pro-latest"
         return "gpt-4-turbo-preview"
     
     def _get_max_tokens(self) -> int:
@@ -63,6 +65,12 @@ class ContextTracker:
             if "claude-3" in self.model.lower() or "claude-3.5" in self.model.lower():
                 return 200_000
             return 200_000  # Default for Claude models
+        elif self.backend == "gemini":
+            # Gemini 1.5 models support very large context windows (up to 1M tokens),
+            # but we use a conservative default here.
+            if "1.5" in self.model.lower():
+                return 1_000_000
+            return 256_000
         return 80_000  # Safe default
     
     def _cache_system_prompt(self):
@@ -132,6 +140,10 @@ class ContextTracker:
             max_tokens=self.max_tokens,
             usage_percentage=usage_percentage
         )
+
+
+
+
 
 
 

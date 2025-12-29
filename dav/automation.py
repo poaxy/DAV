@@ -15,8 +15,8 @@ class CommandExecution:
     command: str
     success: bool
     return_code: int
-    stdout_preview: str = ""  # First few lines of output
-    stderr_preview: str = ""  # First few lines of error
+    stdout_preview: str = ""
+    stderr_preview: str = ""
     timestamp: datetime = field(default_factory=datetime.now)
 
 
@@ -28,14 +28,11 @@ class AutomationLogger:
         self.log_dir = get_automation_log_dir()
         self.log_dir.mkdir(parents=True, exist_ok=True)
         
-        # Clean up old logs on initialization
         self.cleanup_old_logs()
         
-        # Create timestamped report file
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.report_file = self.log_dir / f"dav_{timestamp}.log"
         
-        # Data collection for summary
         self.start_time = datetime.now()
         self.task_query: Optional[str] = None
         self.commands: List[CommandExecution] = []
@@ -45,25 +42,19 @@ class AutomationLogger:
     
     def log_info(self, message: str) -> None:
         """Record informational message (stored for summary, not logged immediately)."""
-        # Only store important info, not verbose logging
         pass
     
     def log_command(self, command: str) -> None:
         """Record command for summary (not logged immediately)."""
-        # Commands are recorded when we log their output
         pass
     
     def log_output(self, stdout: str, stderr: str, return_code: int) -> None:
         """Record command output for summary."""
-        # Extract command from context if available
-        # This will be called after command execution, so we need to track the last command
-        # For now, we'll record it when we have the full execution result
         pass
     
     def record_command_execution(self, command: str, success: bool, return_code: int, 
                                  stdout: str = "", stderr: str = "") -> None:
         """Record a complete command execution for the summary."""
-        # Get preview of output (first 3 lines or first 200 chars)
         stdout_preview = ""
         if stdout:
             lines = stdout.strip().split("\n")
@@ -118,7 +109,6 @@ class AutomationLogger:
         end_time = datetime.now()
         duration = end_time - self.start_time
         
-        # Use execution results if provided, otherwise use collected commands
         if execution_results:
             successful_commands = sum(1 for r in execution_results if getattr(r, "success", False))
             failed_commands = len(execution_results) - successful_commands
@@ -146,7 +136,6 @@ class AutomationLogger:
         report_lines.append(f"Failed: {failed_commands}")
         report_lines.append("")
         
-        # Command details
         if self.commands:
             report_lines.append("-" * 80)
             report_lines.append("COMMAND EXECUTIONS")
@@ -165,7 +154,6 @@ class AutomationLogger:
                         report_lines.append(f"      {line}")
             report_lines.append("")
         
-        # Errors
         if self.errors:
             report_lines.append("-" * 80)
             report_lines.append("ERRORS")
@@ -174,7 +162,6 @@ class AutomationLogger:
                 report_lines.append(f"  • {error}")
             report_lines.append("")
         
-        # Warnings
         if self.warnings:
             report_lines.append("-" * 80)
             report_lines.append("WARNINGS")
@@ -183,7 +170,6 @@ class AutomationLogger:
                 report_lines.append(f"  • {warning}")
             report_lines.append("")
         
-        # AI Responses (brief)
         if self.ai_responses:
             report_lines.append("-" * 80)
             report_lines.append("AI RESPONSES")
@@ -204,7 +190,6 @@ class AutomationLogger:
         try:
             from dav.ai_backend import AIBackend
             
-            # Build summary of what happened
             summary_data = []
             summary_data.append(f"Task: {task_query}")
             summary_data.append(f"Started: {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -222,7 +207,6 @@ class AutomationLogger:
                     summary_data.append(f"\n[{i}] {status} (exit code: {result.return_code})")
                     summary_data.append(f"    Command: {result.command}")
                     if result.stdout:
-                        # Show first few lines of output
                         output_lines = result.stdout.strip().split("\n")
                         preview = "\n".join(output_lines[:5])
                         if len(output_lines) > 5:
@@ -262,7 +246,6 @@ class AutomationLogger:
                 for warning in self.warnings:
                     summary_data.append(f"  - {warning}")
             
-            # Create prompt for AI to generate summary
             execution_summary = "\n".join(summary_data)
             prompt = f"""Based on the following automation task execution, provide a clear, concise summary in plain English.
 
@@ -278,14 +261,13 @@ Please provide a summary that:
 Keep it concise but informative. Write it as a natural summary report, not a technical log."""
             
             try:
-                ai_backend = AIBackend()
+                from dav.ai_backend import FailoverAIBackend
+                ai_backend = FailoverAIBackend()
                 ai_summary = ai_backend.get_response(prompt, system_prompt="You are a technical writer. Generate clear, concise summaries of automation task executions.")
                 return ai_summary
             except Exception as e:
-                # Fallback to structured report if AI fails
                 return self.generate_summary_report(execution_results)
         except Exception as e:
-            # Fallback to structured report if AI backend unavailable
             return self.generate_summary_report(execution_results)
     
     def log_summary(self, task_query: str, execution_results: Optional[List] = None) -> None:
@@ -293,10 +275,8 @@ Keep it concise but informative. Write it as a natural summary report, not a tec
         if not self.task_query:
             self.task_query = task_query
         
-        # Generate AI summary
         report = self.generate_ai_summary(task_query, execution_results)
         
-        # Add header and metadata
         end_time = datetime.now()
         duration = end_time - self.start_time
         
@@ -315,11 +295,9 @@ Report saved: {self.report_file}
 {'=' * 80}
 """
         
-        # Write report to file
         with open(self.report_file, "w", encoding="utf-8") as f:
             f.write(full_report)
         
-        # Also print summary to console
         print("\n" + "=" * 80)
         print("AUTOMATION TASK SUMMARY")
         print("=" * 80)
@@ -344,12 +322,10 @@ Report saved: {self.report_file}
                     log_file.unlink()
                     removed_count += 1
             except Exception:
-                # Ignore errors when cleaning up
                 pass
     
     def close(self) -> None:
         """Close logger and ensure report is written."""
-        # Report is written in log_summary, so nothing to close here
         pass
     
     def __enter__(self):

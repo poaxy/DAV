@@ -57,7 +57,7 @@ def count_tokens(text: str, backend: str, model: Optional[str] = None) -> int:
     
     Args:
         text: Text to count tokens for
-        backend: AI backend ("openai" or "anthropic")
+        backend: AI backend ("openai", "anthropic", or "gemini")
         model: Model name (optional, for better accuracy)
     
     Returns:
@@ -70,6 +70,13 @@ def count_tokens(text: str, backend: str, model: Optional[str] = None) -> int:
         return _count_tokens_openai(text, model)
     elif backend == "anthropic":
         return _count_tokens_anthropic(text, model)
+    elif backend == "gemini":
+        # Gemini tokenization is different, but for context estimation we can
+        # approximate using the same cl100k_base encoding used for Claude/GPT-4.
+        try:
+            return _count_tokens_cached(text, "cl100k_base")
+        except Exception:
+            return _estimate_tokens(text)
     else:
         # Fallback to estimation
         return _estimate_tokens(text)

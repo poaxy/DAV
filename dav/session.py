@@ -22,6 +22,7 @@ class SessionManager:
         # Track last save time to avoid excessive writes when many messages
         # are added in quick succession (e.g., automation feedback loop).
         self._last_save_time: float = 0.0
+        self.active_provider: Optional[str] = None  # Track active provider for failover persistence
         self._load_session()
     
     def _load_session(self) -> None:
@@ -35,10 +36,13 @@ class SessionManager:
                 with open(self.session_file, "r") as f:
                     data = json.load(f)
                     self.messages = data.get("messages", [])
+                    self.active_provider = data.get("active_provider")
             except Exception:
                 self.messages = []
+                self.active_provider = None
         else:
             self.messages = []
+            self.active_provider = None
     
     def _save_session(self, force: bool = False) -> None:
         """Save session to file, with simple debouncing.
@@ -55,6 +59,7 @@ class SessionManager:
                 "session_id": self.session_id,
                 "created_at": datetime.now().isoformat(),
                 "messages": self.messages,
+                "active_provider": self.active_provider,
             }
             with open(self.session_file, "w") as f:
                 # Indent for readability; cost is small relative to I/O.
@@ -128,8 +133,18 @@ class SessionManager:
     def clear_session(self) -> None:
         """Clear the session."""
         self.messages = []
+        self.active_provider = None
         if self.session_file.exists():
             self.session_file.unlink()
+    
+    def set_active_provider(self, provider: str) -> None:
+        """Set the active provider for this session."""
+        self.active_provider = provider
+        self._save_session(force=True)
+    
+    def get_active_provider(self) -> Optional[str]:
+        """Get the active provider for this session."""
+        return self.active_provider
     
     def _estimate_tokens(self, text: str) -> int:
         """Estimate token count (rough approximation: ~4 chars per token)."""

@@ -118,15 +118,18 @@ Create `~/.dav/.env`:
 
 ```bash
 # API Keys (required)
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...           # OpenAI
+ANTHROPIC_API_KEY=sk-ant-...    # Anthropic Claude
+GEMINI_API_KEY=sk-gem-...       # Gemini (Google AI) – alternatively, you can use GOOGLE_API_KEY
 
 # Backend Selection
-DAV_BACKEND=openai  # or "anthropic"
+DAV_BACKEND=openai  # or "anthropic" or "gemini"
 
 # Model Selection
 DAV_DEFAULT_MODEL=gpt-4-turbo-preview
+DAV_OPENAI_MODEL=gpt-4-turbo-preview
 DAV_ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+DAV_GEMINI_MODEL=gemini-1.5-pro-latest
 
 # Permissions
 DAV_ALLOW_EXECUTE=false

@@ -8,14 +8,10 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 import typer
 from rich.console import Console
 
-# Type hints only - not imported at runtime
 if TYPE_CHECKING:
-    from dav.ai_backend import AIBackend
+    from dav.ai_backend import FailoverAIBackend
     from dav.executor import ExecutionResult
     from dav.session import SessionManager
-
-# Lazy imports for heavy modules - only load when needed
-# Fast commands (setup, update, uninstall, etc.) don't need these
 
 app = typer.Typer(help="Dav - An intelligent, context-aware AI assistant for the Linux terminal")
 console = Console()
@@ -32,28 +28,26 @@ def _check_setup_needed() -> bool:
     
     env_file = Path.home() / ".dav" / ".env"
     
-    # If .env file doesn't exist, setup is needed
     if not env_file.exists():
         return True
     
-    # If .env file exists but is empty, setup is needed
     try:
         if env_file.stat().st_size == 0:
             return True
     except Exception:
-        # If we can't check size, assume setup might be needed
         pass
     
-    # Check if we have at least one API key configured
     backend = get_default_backend()
     api_key = get_api_key(backend)
     
-    # If no API key for default backend, check the other backend
     if not api_key:
-        other_backend = "anthropic" if backend == "openai" else "openai"
-        api_key = get_api_key(other_backend)
+        for other_backend in ("openai", "anthropic", "gemini"):
+            if other_backend == backend:
+                continue
+            api_key = get_api_key(other_backend)
+            if api_key:
+                break
     
-    # Setup needed if no API keys found
     return not api_key
 
 
@@ -66,7 +60,6 @@ def _auto_setup_if_needed() -> bool:
     if not _check_setup_needed():
         return False
     
-    # Setup is needed - run it automatically
     console.print("\n[bold yellow]⚠ Dav is not configured yet.[/bold yellow]")
     console.print("[yellow]Running initial setup...[/yellow]\n")
     
@@ -87,7 +80,7 @@ def main(
         "--execution",
         help="Execute commands found in response (with confirmation)",
     ),
-    backend: Optional[str] = typer.Option(None, "--backend", help="AI backend (openai or anthropic)"),
+    backend: Optional[str] = typer.Option(None, "--backend", help="AI backend (openai, anthropic, or gemini)"),
     model: Optional[str] = typer.Option(None, "--model", help="AI model to use"),
     uninstall: bool = typer.Option(False, "--uninstall", help="Complete uninstall: remove all data files and uninstall the package"),
     setup: bool = typer.Option(False, "--setup", help="Set up Dav: create .dav directory and template .env file"),
@@ -106,7 +99,6 @@ def main(
 ):
     """Dav - An intelligent, context-aware AI assistant for the Linux terminal."""
     
-    # Handle setup/update/uninstall commands first (these don't need configuration)
     if setup:
         from dav.setup import run_setup
         run_setup()
@@ -122,7 +114,6 @@ def main(
         run_uninstall(confirm=True)
         return
     
-    # Handle automation-related commands
     if cron_setup:
         from dav.cron_helper import show_cron_examples
         from dav.sudo_handler import SudoHandler
@@ -131,7 +122,6 @@ def main(
         console.print("\n[bold]Cron Setup Guide[/bold]\n")
         console.print(show_cron_examples())
         
-        # Check sudoers status
         sudo_handler = SudoHandler()
         is_configured, status_msg = sudo_handler.check_sudoers_setup()
         
@@ -147,7 +137,6 @@ def main(
                 console.print("\n[cyan]Configuring sudoers...[/cyan]")
                 console.print("[dim]You may be prompted for your sudo password.[/dim]\n")
                 
-                # Ask for security preference
                 use_specific = Confirm.ask(
                     "Use specific commands only (more secure)?",
                     default=True
@@ -178,15 +167,11 @@ def main(
         _handle_schedule_command(schedule)
         return
     
-    # Detect automation mode early (before reading stdin)
     is_automation_mode = automation
     if not is_automation_mode and not sys.stdin.isatty() and not sys.stdout.isatty():
-        # Auto-detect non-TTY environment (both stdin and stdout are not TTY)
-        # This distinguishes true automation (cron/scripts) from piped input (user present)
         is_automation_mode = True
         console.print("[yellow]Auto-detected automation mode (non-TTY)[/yellow]")
     
-    # Check for stdin input (for piped commands like: echo "test" | dav)
     stdin_content = None
     if not query:
         try:
@@ -198,17 +183,12 @@ def main(
         if stdin_content:
             query = "analyze this"
     
-    # Check if setup is needed BEFORE trying to use the AI backend
-    # This ensures setup runs automatically on first use, regardless of how the tool is invoked
     if _auto_setup_if_needed():
-        # Setup was just completed - reload config and continue
-        # Re-import config to reload environment variables
         import importlib
         from dav import config
         importlib.reload(config)
     
-    # Only import heavy AI/execution modules when actually needed
-    from dav.ai_backend import AIBackend
+    from dav.ai_backend import FailoverAIBackend
     from dav.command_plan import CommandPlanError, extract_command_plan
     from dav.context import build_context, format_context_for_prompt
     from dav.executor import COMMAND_EXECUTION_MARKER, execute_commands_from_response
@@ -220,10 +200,18 @@ def main(
         render_warning,
     )
     
-    # Try to initialize AI backend - this will fail if no API keys are configured
-    # But we've already run setup above if needed, so this should work now
+    session_manager = SessionManager(session_id=session)
+    
+    # Try to restore provider from session if available
+    session_provider = session_manager.get_active_provider()
+    if session_provider and not backend:
+        # Use session provider if no explicit backend specified
+        backend = session_provider
+    
     try:
-        ai_backend = AIBackend(backend=backend, model=model)
+        ai_backend = FailoverAIBackend(backend=backend, model=model)
+        # Store active provider in session for persistence
+        session_manager.set_active_provider(ai_backend.backend)
     except ValueError as e:
         error_msg = str(e)
         render_error(error_msg)
@@ -231,20 +219,15 @@ def main(
             console.print("\n[yellow]Tip:[/yellow] Run [cyan]dav --setup[/cyan] to configure your API keys.")
         sys.exit(1)
     
-    session_manager = SessionManager(session_id=session)
-    
-    # Initialize automation logger if in automation mode
     automation_logger = None
     if is_automation_mode:
         from dav.automation import AutomationLogger
         automation_logger = AutomationLogger()
         if query:
             automation_logger.set_task(query)
-        # Auto-enable execute mode in automation
         execute = True
         auto_confirm = True
         
-        # In automation mode, require a query (can't use interactive mode)
         if not query:
             render_error("Automation mode requires a query. Use 'dav --automation \"your task\"'")
             if automation_logger:
@@ -252,13 +235,11 @@ def main(
                 automation_logger.close()
             sys.exit(1)
     
-    # If no query provided and not in interactive mode, default to interactive execute mode
     if not query and not interactive:
         interactive = True
-        execute = True  # Default to execute mode for easier access to main functionality
+        execute = True
     
     if interactive:
-        # In automation mode, don't use interactive mode (they're mutually exclusive)
         if is_automation_mode:
             render_warning("Automation mode and interactive mode are mutually exclusive. Using automation mode.")
         else:
@@ -269,28 +250,23 @@ def main(
         render_error("No query provided. Use 'dav \"your question\"' or 'dav -i' for interactive mode.")
         sys.exit(1)
     
-    # Validate and sanitize user input
     from dav.input_validator import (
         sanitize_user_input,
         detect_prompt_injection,
         validate_query_length,
     )
     
-    # Validate query length
     is_valid, length_error = validate_query_length(query)
     if not is_valid:
         render_error(length_error or "Query validation failed")
         sys.exit(1)
     
-    # Sanitize user input
     query = sanitize_user_input(query)
     
-    # Check for prompt injection
     is_injection, injection_reason = detect_prompt_injection(query)
     if is_injection:
         render_warning(f"Potential prompt injection detected: {injection_reason}")
         render_warning("This query may be blocked or modified for security.")
-        # Continue but log the warning
     
     context_data, full_prompt, system_prompt = _build_prompt_with_context(
         query,
@@ -308,7 +284,9 @@ def main(
                 loading_message=f"Generating response with {backend_name}...",
         )
         
-        # Validate AI response
+        # Update session with current provider (in case failover occurred)
+        session_manager.set_active_provider(ai_backend.backend)
+        
         from dav.input_validator import validate_ai_response
         is_valid_response, validation_error = validate_ai_response(response)
         if not is_valid_response:
@@ -317,7 +295,6 @@ def main(
                 automation_logger.log_error(f"Response validation failed: {validation_error}")
             sys.exit(1)
         
-        # Record AI response for summary
         if automation_logger:
             automation_logger.record_ai_response(response)
 
@@ -334,7 +311,6 @@ def main(
             automation_logger=automation_logger,
         )
         
-        # Close logger (summary is logged in feedback loop if commands were executed)
         if automation_logger:
             log_path = automation_logger.get_log_path()
             automation_logger.close()
@@ -375,10 +351,9 @@ def _build_prompt_with_context(
         automation_mode: Whether in automation mode
         command_outputs: Optional list of recent command outputs to include
     
-    Returns:
+        Returns:
         Tuple of (context_dict, context_string, system_prompt)
     """
-    # Import here to avoid loading heavy modules for fast commands
     from dav.context import build_context, format_context_for_prompt
     from dav.ai_backend import get_system_prompt
     
@@ -397,7 +372,7 @@ def _build_prompt_with_context(
 def _process_response(
     response: str,
     query: str,
-    ai_backend: AIBackend,
+    ai_backend: FailoverAIBackend,
     session_manager: SessionManager,
     execute: bool,
     auto_confirm: bool,
@@ -419,7 +394,6 @@ def _process_response(
         context_data: Context data dictionary
         is_interactive: Whether in interactive mode (affects execution result storage)
     """
-    # Import here to avoid loading heavy modules for fast commands
     from dav.config import get_execute_permission
     from dav.command_plan import CommandPlanError, extract_command_plan
     from dav.executor import COMMAND_EXECUTION_MARKER, execute_commands_from_response
@@ -433,7 +407,6 @@ def _process_response(
         has_marker = COMMAND_EXECUTION_MARKER in response
         
         if has_marker:
-            # Use feedback loop for conditional execution
             confirm = not auto_confirm
             execution_results = _execute_with_feedback_loop(
                 initial_response=response,
@@ -447,12 +420,6 @@ def _process_response(
                 automation_mode=automation_mode,
                 automation_logger=automation_logger,
             )
-            
-            # Execution results are logged in the feedback loop
-            pass
-        else:
-            # No commands to execute, just save response
-            pass
 
 
 def _format_execution_feedback(execution_results: List, original_query: str) -> str:
@@ -482,9 +449,7 @@ def _format_execution_feedback(execution_results: List, original_query: str) -> 
         lines.append("")
         
         if result.stdout:
-            # Sanitize and truncate output before feeding back to AI
             stdout = sanitize_command_output(result.stdout)
-            # Truncate very long output (keep first 2000 chars and last 500 chars)
             if len(stdout) > 3000:
                 stdout = stdout[:2000] + "\n[... truncated ...]\n" + stdout[-500:]
             lines.append("**Output:**")
@@ -494,9 +459,7 @@ def _format_execution_feedback(execution_results: List, original_query: str) -> 
             lines.append("")
         
         if result.stderr:
-            # Sanitize error output
             stderr = sanitize_command_output(result.stderr)
-            # Truncate very long error output
             if len(stderr) > 1000:
                 stderr = stderr[:800] + "\n[... truncated ...]\n" + stderr[-200:]
             lines.append("**Error Output:**")
@@ -531,11 +494,9 @@ def _is_task_complete(response: str) -> bool:
     """
     from dav.executor import COMMAND_EXECUTION_MARKER
     
-    # Check if execution marker is present (means more commands coming)
     if COMMAND_EXECUTION_MARKER in response:
         return False
     
-    # Check for completion phrases (case insensitive)
     completion_phrases = [
         "task complete",
         "task is complete",
@@ -560,7 +521,7 @@ def _is_task_complete(response: str) -> bool:
 def _execute_with_feedback_loop(
     initial_response: str,
     query: str,
-    ai_backend: AIBackend,
+    ai_backend: FailoverAIBackend,
     session_manager: SessionManager,
     context_data: Optional[Dict],
     confirm: bool,
@@ -585,7 +546,6 @@ def _execute_with_feedback_loop(
         auto_confirm: Whether to auto-confirm execution
         is_interactive: Whether in interactive mode
     """
-    # Import here to avoid loading heavy modules for fast commands
     from dav.command_plan import CommandPlanError, extract_command_plan
     from dav.executor import COMMAND_EXECUTION_MARKER, execute_commands_from_response
     from dav.terminal import render_error, render_info, render_streaming_response_with_loading, render_warning
@@ -595,17 +555,13 @@ def _execute_with_feedback_loop(
     try:
         plan = extract_command_plan(initial_response)
     except CommandPlanError:
-        pass  # Will fall back to heuristic parsing
+        pass
     
-    # Initialize execution results list
     execution_results: List = []
     
-    # Execute initial commands
     console.print()
     render_info("[bold cyan]Step 1:[/bold cyan] Executing initial commands...")
     console.print()
-    
-    # Step 1 is tracked in the summary report
     
     execution_results = execute_commands_from_response(
         initial_response,
@@ -620,42 +576,32 @@ def _execute_with_feedback_loop(
         render_warning("No commands were executed. Task may already be complete.")
         return []
     
-    # Store initial results in session
     session_manager.add_execution_results(execution_results)
     
-    # Feedback loop
-    max_iterations = 10  # Safety limit to prevent infinite loops
+    max_iterations = 10
     iteration = 1
     
     while iteration < max_iterations:
         iteration += 1
         
-        # Format execution results for AI
         feedback_prompt = _format_execution_feedback(execution_results, query)
         
-        # Get AI's analysis and next steps
         console.print()
         render_info(f"[bold cyan]Step {iteration}:[/bold cyan] Analyzing results and determining next steps...")
         console.print()
         
-        # Build prompt with session context
         from dav.ai_backend import get_system_prompt
         
-        # Get current session context (includes all previous messages and execution results)
         session_context = session_manager.get_conversation_context()
         
-        # Combine session context with feedback prompt
-        # The feedback prompt provides the most recent execution results in a clear format
         full_feedback_prompt = ""
         if session_context:
             full_feedback_prompt = session_context + "\n\n" + feedback_prompt
         else:
             full_feedback_prompt = feedback_prompt
         
-        # Get system prompt
         system_prompt = get_system_prompt(execute_mode=True, interactive_mode=is_interactive)
         
-        # Get AI's response
         backend_name = ai_backend.backend.title()
         followup_response = render_streaming_response_with_loading(
             ai_backend.stream_response(full_feedback_prompt, system_prompt=system_prompt),
@@ -663,42 +609,34 @@ def _execute_with_feedback_loop(
         )
         console.print()
         
-        # Store AI's response in session
+        # Update session with current provider (in case failover occurred)
+        session_manager.set_active_provider(ai_backend.backend)
+        
         session_manager.add_message("assistant", followup_response)
         
-        # Check if task is complete
         if _is_task_complete(followup_response):
             render_info("[bold green]✓ Task complete![/bold green]")
             console.print()
             break
         
-        # Check if AI provided more commands
         if COMMAND_EXECUTION_MARKER not in followup_response:
-            # AI didn't provide commands but also didn't say complete
-            # This might be an analysis-only response, check again
             render_info("AI provided analysis but no commands. Checking if task is complete...")
-            # Re-check with a more lenient check
             if "complete" in followup_response.lower() or "done" in followup_response.lower():
                 render_info("[bold green]✓ Task complete![/bold green]")
                 console.print()
                 break
             else:
                 render_warning("AI response unclear. Assuming task needs more steps.")
-                # Continue loop to see if AI provides commands in next iteration
                 continue
         
-        # Execute next commands
         render_info(f"[bold cyan]Step {iteration} (continued):[/bold cyan] Executing follow-up commands...")
         console.print()
         
-        # Step tracking is done in the summary report
-        
-        # Extract command plan if available
         plan = None
         try:
             plan = extract_command_plan(followup_response)
         except CommandPlanError:
-            pass  # Will fall back to heuristic parsing
+            pass
         
         step_results = execute_commands_from_response(
             followup_response,
@@ -715,7 +653,6 @@ def _execute_with_feedback_loop(
             render_warning("No commands found in AI response. Task may be complete.")
             break
         
-        # Store results in session
         session_manager.add_execution_results(step_results)
     
     if iteration >= max_iterations:
@@ -725,7 +662,6 @@ def _execute_with_feedback_loop(
         if automation_logger:
             automation_logger.log_warning(f"Reached maximum iteration limit ({max_iterations})")
     
-    # Log final summary if in automation mode (only once at the end)
     if automation_logger and execution_results:
         task_status = "Task (incomplete)" if iteration >= max_iterations else "Task completed"
         automation_logger.log_summary(f"{task_status}: {query}", execution_results)
@@ -752,7 +688,6 @@ def _truncate_output(output: str, max_lines: int = 2000, keep_lines: int = 1000)
     if len(lines) <= max_lines:
         return output
     
-    # Truncate to last N lines
     truncated = '\n'.join(lines[-keep_lines:])
     return f"[... {len(lines) - keep_lines} lines truncated ...]\n{truncated}"
 
@@ -782,7 +717,6 @@ def _store_command_output(command: str, stdout: str, stderr: str, success: bool,
         "timestamp": time.time()
     })
     
-    # Keep only last 20 commands
     if len(command_outputs) > 20:
         command_outputs.pop(0)
 
@@ -806,14 +740,11 @@ def _handle_command_execution(command: str, command_outputs: List[Dict[str, Any]
     if not command:
         return False
     
-    # Special handling for cd command
     if command.startswith("cd "):
         target_dir = command[3:].strip()
         if not target_dir:
-            # cd without arguments goes to home
             target_dir = os.path.expanduser("~")
         else:
-            # Expand ~ and resolve path
             target_dir = os.path.expanduser(target_dir)
             target_dir = os.path.expandvars(target_dir)
         
@@ -837,7 +768,6 @@ def _handle_command_execution(command: str, command_outputs: List[Dict[str, Any]
             _store_command_output(command, "", error_msg, False, command_outputs)
             return False
     
-    # Execute other commands using executor
     try:
         success, stdout, stderr, return_code = execute_command(
             command,
@@ -855,7 +785,7 @@ def _handle_command_execution(command: str, command_outputs: List[Dict[str, Any]
         return False
 
 
-def _process_query_with_ai(query: str, ai_backend, session_manager, 
+def _process_query_with_ai(query: str, ai_backend: FailoverAIBackend, session_manager, 
                            execute: bool, auto_confirm: bool, command_outputs: List[Dict[str, Any]]) -> None:
     """
     Process a query with the AI backend (validation, sanitization, and response).
@@ -871,21 +801,17 @@ def _process_query_with_ai(query: str, ai_backend, session_manager,
     from dav.terminal import render_error, render_warning, render_streaming_response_with_loading
     from dav.input_validator import sanitize_user_input, detect_prompt_injection, validate_query_length
     
-    # Validate query length
     is_valid, length_error = validate_query_length(query)
     if not is_valid:
         render_error(length_error or "Query validation failed")
         return
     
-    # Sanitize user input
     query = sanitize_user_input(query)
     
-    # Check for prompt injection
     is_injection, injection_reason = detect_prompt_injection(query)
     if is_injection:
         render_warning(f"Potential prompt injection detected: {injection_reason}")
     
-    # Process with AI
     context_data, full_prompt, system_prompt = _build_prompt_with_context(
         query, session_manager, execute_mode=execute, interactive_mode=True, command_outputs=command_outputs
     )
@@ -897,6 +823,9 @@ def _process_query_with_ai(query: str, ai_backend, session_manager,
         loading_message=f"Generating response with {backend_name}...",
     )
     console.print()
+    
+    # Update session with current provider (in case failover occurred)
+    session_manager.set_active_provider(ai_backend.backend)
     
     _process_response(
         response,
@@ -937,7 +866,6 @@ def _handle_app_function(func_name: str, current_mode: str, command_outputs: Lis
         if current_mode == "command":
             render_info("Already in command mode. Commands can be run directly without '>' prefix.")
             return None, False
-        # Clear command outputs and screen when switching modes
         command_outputs.clear()
         console.clear()
         render_dav_banner()
@@ -951,15 +879,12 @@ def _handle_app_function(func_name: str, current_mode: str, command_outputs: Lis
         if current_mode != "command":
             render_error("'/dav' can only be used in command mode. Use '/cmd' to enter command mode first.")
             return None, False
-        # /dav doesn't change mode - it just processes a query while staying in command mode
-        # No mode change, return None
         return None, False
     
     elif func_name == "int":
         if current_mode == "interactive":
             render_info("Already in interactive mode.")
             return None, False
-        # Clear command outputs and screen when switching modes
         command_outputs.clear()
         console.clear()
         render_dav_banner()
@@ -970,7 +895,6 @@ def _handle_app_function(func_name: str, current_mode: str, command_outputs: Lis
         return "interactive", False
     
     elif func_name == "clear":
-        # Clear the screen and re-display banner
         console.clear()
         render_dav_banner()
         console.print("[bold green]Dav Interactive Mode[/bold green]")
@@ -1007,28 +931,22 @@ def _route_input(user_input: str, current_mode: str, ai_backend, session_manager
     if not user_input:
         return None, False
     
-    # Check for command execution prefix (>)
     if user_input.startswith(">"):
         command = user_input[1:].strip()
         if command:
             _handle_command_execution(command, command_outputs)
         return None, False
     
-    # Check for app function prefix (/)
     if user_input.startswith("/"):
-        # Extract function name (first word) and any remaining text
-        parts = user_input[1:].strip().split(None, 1)  # Split on first whitespace
+        parts = user_input[1:].strip().split(None, 1)
         func_name = parts[0] if parts else ""
         remaining_text = parts[1] if len(parts) > 1 else None
         
-        # Warn if other functions have extra text (except /dav which uses it as query)
         if remaining_text and func_name != "dav":
             render_warning(f"Extra text after /{func_name} will be ignored. Use '/dav <text>' to ask Dav a question.")
         
-        # Handle the function
         new_mode, should_exit = _handle_app_function(func_name, current_mode, command_outputs)
         
-        # Special handling for /dav with additional text: process query without changing mode
         if func_name == "dav" and remaining_text and new_mode is None:
             query = remaining_text.strip()
             if query:
@@ -1036,18 +954,14 @@ def _route_input(user_input: str, current_mode: str, ai_backend, session_manager
                     query, ai_backend, session_manager,
                     execute, auto_confirm, command_outputs
                 )
-            # Return None to keep current mode (command mode)
             return None, False
         
         return new_mode, should_exit
     
-    # Regular text input
     if current_mode == "command":
-        # In command mode, regular text is treated as a command (no > prefix needed)
         _handle_command_execution(user_input, command_outputs)
         return None, False
     else:
-        # In interactive mode, send to AI
         _process_query_with_ai(
             user_input, ai_backend, session_manager,
             execute, auto_confirm, command_outputs
@@ -1055,76 +969,61 @@ def _route_input(user_input: str, current_mode: str, ai_backend, session_manager
         return None, False
 
 
-def run_interactive_mode(ai_backend: AIBackend,
+def run_interactive_mode(ai_backend: FailoverAIBackend,
                         session_manager: SessionManager, execute: bool, auto_confirm: bool):
     """Run interactive mode for multi-turn conversations."""
-    # Import here to avoid loading heavy modules for fast commands
     from dav.terminal import render_error, render_streaming_response_with_loading, render_context_status, render_warning, render_dav_banner
     from dav.context_tracker import ContextTracker
     from dav.context import format_context_for_prompt, build_context
     
-    # Clear the terminal screen for a fresh start
     console.clear()
     
-    # Initialize context tracker
     context_tracker = ContextTracker(backend=ai_backend.backend, model=ai_backend.model)
     
-    # Display ASCII art banner
     render_dav_banner()
     
     console.print("[bold green]Dav Interactive Mode[/bold green]")
     console.print("Type 'exit' or 'quit' to exit, 'clear' to clear session")
     console.print("Use '>' prefix to execute commands, '/' for functions (/exit, /cmd, /dav, /int, /clear)\n")
     
-    # Track current mode: "interactive" (default) or "command"
     current_mode = "interactive"
     
-    # Store command outputs for Dav context (cleared on mode switch)
     command_outputs: List[Dict[str, Any]] = []
     
-    # Helper function to display context and prompt
     def display_prompt_with_context():
         """Display context status panel and prompt."""
-        # Calculate current context usage (no query yet)
         context_data = build_context(query=None)
         system_context_str = format_context_for_prompt(context_data)
         session_history_str = session_manager.get_conversation_context()
         usage = context_tracker.calculate_usage(
             system_context=system_context_str,
             session_history=session_history_str,
-            current_query=""  # No query when showing prompt
+            current_query=""
         )
-        # Pass model and backend for panel display
         render_context_status(usage, model=ai_backend.model, backend=ai_backend.backend)
         
-        # Display formatted prompt
         from dav.terminal import format_interactive_prompt
         prompt_text = format_interactive_prompt(mode=current_mode)
         console.print(prompt_text, end="")
         
-        # Get user input (end="" prevents newline after prompt)
         user_input = input()
         return user_input.strip()
     
     while True:
         try:
-            # Get user input with context display
             user_input = display_prompt_with_context()
             
             if not user_input:
                 continue
             
-            # Handle legacy exit commands (for backward compatibility)
             if user_input.lower() in ("exit", "quit", "q"):
                 break
             
-            # Handle legacy clear command
             if user_input.lower() == "clear":
                 session_manager.clear_session()
                 console.print("Session cleared.\n")
                 continue
             
-            # Route input based on prefix and mode
             new_mode, should_exit = _route_input(
                 user_input,
                 current_mode,
@@ -1135,11 +1034,9 @@ def run_interactive_mode(ai_backend: AIBackend,
                 command_outputs,
             )
             
-            # Handle mode transition
             if new_mode:
                 current_mode = new_mode
             
-            # Handle exit
             if should_exit:
                 break
         
@@ -1155,34 +1052,29 @@ def run_interactive_mode(ai_backend: AIBackend,
 
 def _handle_schedule_command(schedule_input: str) -> None:
     """Handle --schedule command to set up cron jobs."""
-    from dav.ai_backend import AIBackend
+    from dav.ai_backend import FailoverAIBackend
     from dav.cron_helper import add_cron_job
     from dav.schedule_parser import parse_schedule
     from dav.terminal import render_error, render_warning
     
     console.print("[cyan]Parsing schedule and setting up cron job...[/cyan]\n")
     
-    # Check if setup is needed
     if _auto_setup_if_needed():
         import importlib
         from dav import config
         importlib.reload(config)
     
-    # Initialize AI backend (may fail, but that's okay - we have fallbacks)
     ai_backend = None
     try:
-        ai_backend = AIBackend()
+        ai_backend = FailoverAIBackend()
     except ValueError as e:
-        # AI backend not available, but we can still try dateparser and regex
         console.print("[dim]AI backend not available, using fallback parsers...[/dim]\n")
     
-    # Parse schedule using hybrid parser
     result = parse_schedule(schedule_input, ai_backend=ai_backend)
     
     if not result.success:
         render_error("Could not parse schedule")
         if result.error:
-            # Print the detailed error message (may contain multiple lines)
             error_lines = result.error.split('\n')
             for line in error_lines:
                 if line.strip():
@@ -1203,7 +1095,6 @@ def _handle_schedule_command(schedule_input: str) -> None:
         render_error("Could not determine schedule from input")
         sys.exit(1)
     
-    # Show which method succeeded
     method_names = {
         "ai": "AI parsing",
         "dateparser": "dateparser library",
@@ -1212,16 +1103,12 @@ def _handle_schedule_command(schedule_input: str) -> None:
     method_name = method_names.get(result.method, "unknown method")
     console.print(f"[dim]Parsed using: {method_name}[/dim]\n")
     
-    # Check if NOPASSWD is configured before scheduling
-    # This is important because scheduled tasks in automation mode will fail
-    # if they require sudo and password-less sudo is not available
     from dav.sudo_handler import SudoHandler
     from rich.prompt import Confirm
     
     sudo_handler = SudoHandler()
     is_configured, status_msg = sudo_handler.check_sudoers_setup()
     
-    # Check if task might require sudo (common keywords)
     task_lower = task.lower()
     sudo_keywords = [
         "update", "upgrade", "install", "remove", "system", "service",
@@ -1249,7 +1136,6 @@ def _handle_schedule_command(schedule_input: str) -> None:
             console.print("[dim]You may be prompted for your sudo password.[/dim]")
             console.print()
             
-            # Ask for security preference
             use_specific = Confirm.ask(
                 "Use specific commands only (more secure)?",
                 default=True
@@ -1267,11 +1153,11 @@ def _handle_schedule_command(schedule_input: str) -> None:
                 console.print()
                 console.print("[yellow]You can still schedule the task, but it may fail if sudo is required.[/yellow]")
                 console.print(sudo_handler.get_sudoers_instructions())
-                console.print()
-                
-                if not Confirm.ask("Continue scheduling anyway?", default=True):
-                    console.print("[yellow]Scheduling cancelled.[/yellow]")
-                    sys.exit(0)
+            console.print()
+            
+            if not Confirm.ask("Continue scheduling anyway?", default=True):
+                console.print("[yellow]Scheduling cancelled.[/yellow]")
+                sys.exit(0)
         else:
             console.print()
             console.print("[yellow]Skipping automatic configuration.[/yellow]")
@@ -1284,14 +1170,11 @@ def _handle_schedule_command(schedule_input: str) -> None:
                 console.print("[yellow]Scheduling cancelled.[/yellow]")
                 sys.exit(0)
     elif not is_configured:
-        # NOPASSWD not configured but task probably doesn't need sudo
-        # Just show a brief warning
         console.print()
         render_warning("Password-less sudo is not configured.")
         console.print("[dim]If this task requires sudo, it will fail. Run 'dav --cron-setup' to configure.[/dim]")
         console.print()
     
-    # Add cron job
     success, message, match_type, existing_entry = add_cron_job(cron_schedule, task, auto_confirm=True)
     
     if success:
@@ -1299,14 +1182,11 @@ def _handle_schedule_command(schedule_input: str) -> None:
         console.print(f"\n[cyan]Cron job added successfully![/cyan]")
         console.print(f"[dim]View with: crontab -l[/dim]")
         
-        # Final reminder if NOPASSWD not configured and task might need sudo
         if not is_configured and might_need_sudo:
             console.print()
             render_warning("Remember: Configure password-less sudo with 'dav --cron-setup' if this task requires sudo.")
     else:
-        # Handle different duplicate match types
         if match_type == "exact" or match_type == "task_and_schedule":
-            # Exact or task+schedule duplicate - just inform user
             render_error(message)
             if existing_entry:
                 console.print(f"\n[dim]Existing entry: {existing_entry}[/dim]")
@@ -1314,14 +1194,12 @@ def _handle_schedule_command(schedule_input: str) -> None:
             sys.exit(1)
         
         elif match_type == "task_only":
-            # Task exists with different schedule - prompt user for action
             from dav.cron_helper import find_similar_cron_jobs, replace_cron_job
             
             console.print()
             render_warning("A similar task is already scheduled with a different time.")
             console.print()
             
-            # Find all similar jobs
             similar_jobs = find_similar_cron_jobs(task, cron_schedule)
             
             if similar_jobs:
@@ -1356,17 +1234,13 @@ def _handle_schedule_command(schedule_input: str) -> None:
                 sys.exit(0)
             
             elif choice == "2":
-                # Replace
                 if not similar_jobs:
-                    # Fallback to existing_entry if similar_jobs is empty
                     if existing_entry:
                         old_entry = existing_entry
                     else:
                         render_error("Could not find existing entry to replace.")
                         sys.exit(1)
                 else:
-                    # If multiple similar jobs, replace the first one (or could prompt which one)
-                    # For now, replace the first one found
                     old_entry = similar_jobs[0][1]
                 
                 console.print()
@@ -1383,8 +1257,6 @@ def _handle_schedule_command(schedule_input: str) -> None:
                     sys.exit(1)
             
             elif choice == "3":
-                # Add anyway - proceed with adding the new job
-                # We need to bypass the duplicate check, so we'll add it directly
                 from dav.cron_helper import detect_dav_path, get_current_crontab, _write_crontab
                 
                 dav_path = detect_dav_path()
@@ -1393,7 +1265,6 @@ def _handle_schedule_command(schedule_input: str) -> None:
                 current_crontab = get_current_crontab()
                 new_crontab = current_crontab + [new_cron_entry]
                 
-                # Write crontab using helper function
                 success, error_msg = _write_crontab(new_crontab)
                 
                 if success:
@@ -1409,7 +1280,6 @@ def _handle_schedule_command(schedule_input: str) -> None:
                     sys.exit(1)
         
         else:
-            # Other error (not a duplicate)
             render_error(message)
             sys.exit(1)
 

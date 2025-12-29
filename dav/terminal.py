@@ -86,7 +86,7 @@ def _get_shortened_model_name(model: str, backend: str) -> str:
     
     Args:
         model: Full model name
-        backend: Backend name (openai or anthropic)
+        backend: Backend name (openai, anthropic, or gemini)
     
     Returns:
         Shortened model name
@@ -108,6 +108,13 @@ def _get_shortened_model_name(model: str, backend: str) -> str:
             return "claude-3"
         elif "claude" in model_lower:
             return "claude"
+    elif backend == "gemini":
+        if "1.5-pro" in model_lower:
+            return "gemini-1.5-pro"
+        if "1.5-flash" in model_lower:
+            return "gemini-1.5-flash"
+        if "gemini" in model_lower:
+            return "gemini"
     
     # Fallback: return first 10 chars
     return model[:10] if len(model) > 10 else model

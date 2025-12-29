@@ -8,12 +8,10 @@ from typing import Any, Dict, List, Optional
 
 from dav.config import get_max_stdin_chars
 
-# Input validation & truncation limits
 MAX_DIR_FILES = 15
 MAX_STDIN_CHARS = get_max_stdin_chars()
 MAX_PATH_LENGTH = 200
 
-# Cached OS info (does not change during the process lifetime)
 _CACHED_OS_INFO: Optional[Dict[str, Any]] = None
 
 
@@ -28,7 +26,6 @@ def get_linux_distro() -> Dict[str, str]:
     """Get Linux distribution information."""
     distro_info = {}
     
-    # Try /etc/os-release first (most common)
     os_release_paths = [
         Path("/etc/os-release"),
         Path("/usr/lib/os-release"),
@@ -42,14 +39,12 @@ def get_linux_distro() -> Dict[str, str]:
                         line = line.strip()
                         if "=" in line and not line.startswith("#"):
                             key, value = line.split("=", 1)
-                            # Remove quotes if present
                             value = value.strip('"\'')
                             distro_info[key.lower()] = value
                 break
             except Exception:
                 continue
     
-    # Fallback: try /etc/lsb-release (Ubuntu/Debian)
     if not distro_info:
         lsb_release_path = Path("/etc/lsb-release")
         if lsb_release_path.exists():
@@ -85,17 +80,14 @@ def get_os_info() -> Dict[str, Any]:
         "platform": platform.platform(),
     }
     
-    # Add Linux distribution info if on Linux
     if platform.system() == "Linux":
         distro_info = get_linux_distro()
         if distro_info:
-            # Extract key distribution information
             os_info["distribution"] = distro_info.get("name", distro_info.get("distrib_id", "Unknown"))
             os_info["distribution_id"] = distro_info.get("id", distro_info.get("distrib_id", "unknown"))
             os_info["distribution_version"] = distro_info.get("version_id", distro_info.get("distrib_release", "unknown"))
             os_info["distribution_pretty_name"] = distro_info.get("pretty_name", distro_info.get("distrib_description", ""))
             
-            # Add version codename if available
             if "version_codename" in distro_info:
                 os_info["distribution_codename"] = distro_info["version_codename"]
             elif "distrib_codename" in distro_info:
@@ -111,7 +103,6 @@ def get_current_directory() -> Dict[str, Any]:
         cwd = os.getcwd()
         cwd_path = Path(cwd)
         
-        # Truncate path if too long
         cwd_display = truncate_path(cwd)
         
         context = {
@@ -119,10 +110,8 @@ def get_current_directory() -> Dict[str, Any]:
             "exists": cwd_path.exists(),
         }
         
-        # List directory contents (limited)
         if cwd_path.exists() and cwd_path.is_dir():
             try:
-                # List directory contents once and reuse slice/length
                 all_items = list(cwd_path.iterdir())
                 items = all_items[:MAX_DIR_FILES]
                 context["contents"] = [
@@ -150,7 +139,6 @@ def get_stdin_input() -> Optional[str]:
     if not sys.stdin.isatty():
         try:
             stdin_content = sys.stdin.read()
-            # Truncate if too long
             if len(stdin_content) > MAX_STDIN_CHARS:
                 stdin_content = stdin_content[:MAX_STDIN_CHARS] + "\n... (truncated)"
             return stdin_content
@@ -166,7 +154,6 @@ def build_context(query: Optional[str] = None, stdin_content: Optional[str] = No
         "directory": get_current_directory(),
     }
     
-    # Add stdin content if available
     if stdin_content:
         context["stdin"] = stdin_content
     else:
@@ -174,7 +161,6 @@ def build_context(query: Optional[str] = None, stdin_content: Optional[str] = No
         if stdin_input:
             context["stdin"] = stdin_input
     
-    # Add query if provided
     if query:
         context["query"] = query
     
@@ -191,13 +177,11 @@ def format_context_for_prompt(context: Dict[str, Any], command_outputs: Optional
     
     lines = []
     
-    # OS Information
     lines.append("## System Information (for your awareness; mention only if relevant)")
     os_info = context.get("os", {})
     system = os_info.get("system", "unknown")
     lines.append(f"- Operating System: {system}")
     
-    # Add Linux distribution details if available
     if system == "Linux":
         if "distribution" in os_info:
             distro_name = os_info.get("distribution_pretty_name") or os_info.get("distribution", "Unknown")
@@ -218,7 +202,6 @@ def format_context_for_prompt(context: Dict[str, Any], command_outputs: Optional
     lines.append(f"- Architecture: {os_info.get('machine', 'unknown')}")
     lines.append("")
     
-    # Directory Information
     lines.append("## Current Directory (internal context)")
     dir_info = context.get("directory", {})
     lines.append(f"- Path: {dir_info.get('path', 'unknown')}")
@@ -241,7 +224,6 @@ def format_context_for_prompt(context: Dict[str, Any], command_outputs: Optional
         lines.append("- Contents: permission denied")
     lines.append("")
     
-    # Command Outputs (visible to Dav)
     if command_outputs:
         lines.append("## Recent Command Outputs (visible to Dav)")
         for output_entry in command_outputs:
@@ -269,7 +251,6 @@ def format_context_for_prompt(context: Dict[str, Any], command_outputs: Optional
             lines.append("")
         lines.append("")
     
-    # Stdin Input
     if "stdin" in context:
         lines.append("## Piped Input (internal content to analyze)")
         lines.append("```")

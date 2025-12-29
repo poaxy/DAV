@@ -2,49 +2,44 @@
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from dotenv import load_dotenv
 
-# Load .env file from user's home directory or current directory
 env_paths = [
     Path.home() / ".dav" / ".env",
     Path.cwd() / ".env",
 ]
 for env_path in env_paths:
     if env_path.exists():
-        # Verify permissions before loading sensitive configuration
         try:
             from dav.file_security import check_and_warn_permissions
             check_and_warn_permissions(env_path, "Configuration file")
         except Exception:
-            # If we can't check permissions, continue anyway (might be import issue)
             pass
         
-        # Check if file is not empty before loading
         try:
             if env_path.stat().st_size > 0:
                 load_dotenv(env_path)
         except Exception:
-            # If we can't check size, try loading anyway
             load_dotenv(env_path)
         break
 
-# Default configuration
 DEFAULT_MODEL_OPENAI = "gpt-4-turbo-preview"
 DEFAULT_MODEL_ANTHROPIC = "claude-3-5-sonnet-20241022"
-DEFAULT_BACKEND = "openai"  # or "anthropic"
+DEFAULT_MODEL_GEMINI = "gemini-1.5-pro-latest"
+DEFAULT_BACKEND = "openai"
 DEFAULT_MAX_STDIN_CHARS = 32000
-DEFAULT_MAX_CONTEXT_TOKENS = 80000  # 80k tokens (generous but safe)
-DEFAULT_MAX_CONTEXT_MESSAGES = 100  # Allow many exchanges in a session
-
-# Configuration getters
+DEFAULT_MAX_CONTEXT_TOKENS = 80000
+DEFAULT_MAX_CONTEXT_MESSAGES = 100
 def get_api_key(backend: str) -> Optional[str]:
     """Get API key for the specified backend."""
     if backend == "openai":
         return os.getenv("OPENAI_API_KEY")
     elif backend == "anthropic":
         return os.getenv("ANTHROPIC_API_KEY")
+    elif backend == "gemini":
+        return os.getenv("GEMINI_API_KEY")
     return None
 
 def get_default_model(backend: str) -> str:
@@ -57,6 +52,8 @@ def get_default_model(backend: str) -> str:
         return os.getenv("DAV_OPENAI_MODEL", DEFAULT_MODEL_OPENAI)
     elif backend == "anthropic":
         return os.getenv("DAV_ANTHROPIC_MODEL", DEFAULT_MODEL_ANTHROPIC)
+    elif backend == "gemini":
+        return os.getenv("DAV_GEMINI_MODEL", DEFAULT_MODEL_GEMINI)
     
     return DEFAULT_MODEL_OPENAI
 
@@ -72,7 +69,6 @@ def get_session_dir() -> Path:
     """Get directory for session files."""
     session_dir = os.getenv("DAV_SESSION_DIR")
     if session_dir:
-        # Expand ~ to home directory
         return Path(session_dir).expanduser()
     return Path.home() / ".dav" / "sessions"
 
@@ -83,10 +79,8 @@ def get_max_stdin_chars() -> int:
     if value:
         try:
             parsed = int(value)
-            # Ensure the value is reasonable (positive and within 1MB)
             if parsed <= 0:
                 return DEFAULT_MAX_STDIN_CHARS
-            # Cap at 1,000,000 characters to prevent excessive memory usage
             return min(parsed, 1_000_000)
         except ValueError:
             return DEFAULT_MAX_STDIN_CHARS
@@ -99,10 +93,8 @@ def get_max_context_tokens() -> int:
     if value:
         try:
             parsed = int(value)
-            # Ensure reasonable value (positive and within 200k for Claude)
             if parsed <= 0:
                 return DEFAULT_MAX_CONTEXT_TOKENS
-            # Cap at 200k to prevent issues
             return min(parsed, 200_000)
         except ValueError:
             return DEFAULT_MAX_CONTEXT_TOKENS
@@ -115,10 +107,8 @@ def get_max_context_messages() -> int:
     if value:
         try:
             parsed = int(value)
-            # Ensure reasonable value
             if parsed <= 0:
                 return DEFAULT_MAX_CONTEXT_MESSAGES
-            # Cap at 500 to prevent excessive memory usage
             return min(parsed, 500)
         except ValueError:
             return DEFAULT_MAX_CONTEXT_MESSAGES
@@ -146,11 +136,41 @@ def get_automation_log_retention_days() -> int:
             parsed = int(value)
             if parsed <= 0:
                 return 30
-            # Cap at 365 days
             return min(parsed, 365)
         except ValueError:
             return 30
     return 30
+
+
+def is_provider_configured(backend: str) -> bool:
+    """Check if a provider has an API key configured."""
+    api_key = get_api_key(backend)
+    if api_key:
+        return True
+    
+    # Special case for Gemini - check GOOGLE_API_KEY
+    if backend == "gemini":
+        return os.getenv("GOOGLE_API_KEY") is not None
+    
+    return False
+
+
+def get_available_providers() -> List[str]:
+    """Get list of configured providers."""
+    available = []
+    priority_order = get_provider_priority()
+    
+    for backend in priority_order:
+        if is_provider_configured(backend):
+            available.append(backend)
+    
+    return available
+
+
+def get_provider_priority() -> List[str]:
+    """Get provider priority order."""
+    # Default priority: OpenAI > Anthropic > Gemini
+    return ["openai", "anthropic", "gemini"]
 
 
 

@@ -27,7 +27,6 @@ from dav.terminal import (
 
 COMMAND_TIMEOUT_SECONDS = 300
 
-# Global sudo handler cache (created once per process)
 _sudo_handler_cache: Optional[Any] = None
 
 
@@ -71,7 +70,6 @@ def _get_process_return_code(process: Any) -> Optional[int]:
     try:
         return process.poll()
     except AttributeError:
-        # Try alternative methods
         if hasattr(process, 'returncode'):
             return process.returncode
         elif hasattr(process, 'wait'):
@@ -107,11 +105,10 @@ DANGEROUS_PATTERNS = [
     r'(?<!&)>\s*/dev/(?!null|zero)',  # > /dev/ (but allow &> /dev/null and > /dev/null/zero)
     r':\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\};',  # Fork bomb
     r'\bmkfs\.',  # mkfs. (format filesystem - always block)
-    r'\bfdisk\s+/dev/',  # fdisk /dev/ (partition manipulation - always block)
-    r'\bformat\s+/',  # format / (format disk - always block)
+    r'\bfdisk\s+/dev/',
+    r'\bformat\s+/',
 ]
 
-# Patterns that are dangerous in automation mode but may be acceptable if explicitly requested
 AUTOMATION_DANGEROUS_PATTERNS = [
     r'\breboot\b',  # reboot (dangerous in automation unless explicitly requested)
     r'\bshutdown\b',  # shutdown (dangerous in automation unless explicitly requested)
@@ -135,17 +132,13 @@ def is_dangerous_command(command: str, automation_mode: bool = False) -> bool:
     """
     command_lower = command.lower().strip()
     
-    # Skip dangerous check for conditional statements (if, while, for, etc.)
-    # These are valid bash constructs, not dangerous operations
     if re.match(r'^\s*(if|while|for|case|until)\s+', command_lower):
         return False
     
-    # Always check standard dangerous patterns
     for pattern in DANGEROUS_PATTERNS:
         if re.search(pattern, command_lower):
             return True
     
-    # In automation mode, also check automation-specific dangerous patterns
     if automation_mode:
         for pattern in AUTOMATION_DANGEROUS_PATTERNS:
             if re.search(pattern, command_lower):
@@ -179,33 +172,27 @@ def extract_commands(text: str) -> List[str]:
         if not code_block:
             continue
         
-        # Check if this is a multi-line bash construct (if/then/fi, while/do/done, etc.)
-        # These should be kept as a single command
         bash_constructs = [
-            (r'\bif\s+.*\bthen\b', r'\bfi\b'),  # if...then...fi
-            (r'\bwhile\s+.*\bdo\b', r'\bdone\b'),  # while...do...done
-            (r'\bfor\s+.*\bdo\b', r'\bdone\b'),  # for...do...done
-            (r'\bcase\s+.*\bin\b', r'\besac\b'),  # case...in...esac
-            (r'\buntil\s+.*\bdo\b', r'\bdone\b'),  # until...do...done
-            (r'\bfunction\s+', r'\b}\s*$'),  # function...{...}
+            (r'\bif\s+.*\bthen\b', r'\bfi\b'),
+            (r'\bwhile\s+.*\bdo\b', r'\bdone\b'),
+            (r'\bfor\s+.*\bdo\b', r'\bdone\b'),
+            (r'\bcase\s+.*\bin\b', r'\besac\b'),
+            (r'\buntil\s+.*\bdo\b', r'\bdone\b'),
+            (r'\bfunction\s+', r'\b}\s*$'),
         ]
         
         is_multiline_construct = False
         for start_pattern, end_pattern in bash_constructs:
             if re.search(start_pattern, code_block, re.IGNORECASE):
-                # Found start of construct, check if it has matching end
                 if re.search(end_pattern, code_block, re.IGNORECASE):
                     is_multiline_construct = True
                     break
         
         if is_multiline_construct:
-            # Keep the entire code block as a single command
-            # Remove leading/trailing whitespace but preserve structure
             command = code_block.strip()
             if command:
                 commands.append(command)
         else:
-            # Split by lines for simple commands
             lines = code_block.split('\n')
             for line in lines:
                 line = line.strip()
@@ -282,10 +269,9 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
         stream_output: If True, stream output in real-time; if False, capture and return
         direct_passthrough: If True, pass stdout/stderr directly to terminal (preserves formatting/colors)
     
-    Returns:
+        Returns:
         (success, stdout, stderr, return_code)
     """
-    # Check for dangerous commands (but allow all other commands for AI flexibility)
     if is_dangerous_command(command, automation_mode=automation_mode):
         error_msg = "Command blocked: potentially dangerous operation detected"
         if automation_mode:
@@ -293,15 +279,12 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
         render_error(error_msg)
         if automation_logger:
             automation_logger.log_error(error_msg)
-        return False, "", "Command blocked for safety", 1
+            return False, "", "Command blocked for safety", 1
     
-    # In automation mode, skip confirmations and use non-streaming output for logging
     if automation_mode:
         confirm = False
         stream_output = False
         
-        # Check if command needs sudo and handle it
-        # Use regex to match "sudo" as a word (not part of another word like "pseudo")
         needs_sudo = bool(re.search(r'\bsudo\b', command))
         if needs_sudo:
             from dav.config import get_automation_sudo_method
@@ -309,7 +292,6 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
             
             sudo_method = get_automation_sudo_method()
             if sudo_method == "sudoers":
-                # Use cached sudo handler (create once, reuse)
                 global _sudo_handler_cache
                 if _sudo_handler_cache is None:
                     _sudo_handler_cache = SudoHandler()
@@ -321,8 +303,6 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
                     if automation_logger:
                         automation_logger.log_error(error_msg)
                     return False, "", error_msg, 1
-                # Command already has sudo prefix, so we execute it as-is
-                # The sudo check above ensures password-less sudo is available
     
     if confirm:
         render_command(command)
@@ -330,11 +310,9 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
             return False, "", "User cancelled", 1
     
     try:
-        # Parse and validate command for safe execution
         from dav.command_validator import prepare_command_for_execution, CommandParseError
         
         try:
-            # Prepare environment with PYTHONUNBUFFERED for unbuffered output
             env = os.environ.copy()
             env['PYTHONUNBUFFERED'] = '1'
             
@@ -344,7 +322,6 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
                 env=env
             )
             
-            # use_shell should always be False for security
             if use_shell:
                 return False, "", "Command requires shell features that are not safely supported", 1
             
@@ -355,23 +332,15 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
                 automation_logger.log_error(error_msg)
             return False, "", error_msg, 1
         
-        # Store original command for logging
         original_command = command
 
-        # Build plumbum command from command_list
         if not command_list:
             return False, "", "Empty command list", 1
         
-        # Create plumbum command object
-        # Plumbum supports building commands dynamically
-        # Start with the command name
         cmd = local[command_list[0]]
-        # Add arguments one by one (plumbum supports chaining)
         for arg in command_list[1:]:
             cmd = cmd[arg]
         
-        # Apply environment variables and working directory
-        # env already contains os.environ.copy() with PYTHONUNBUFFERED
         cmd = cmd.with_env(**env)
         
         if cwd:
@@ -383,26 +352,18 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
             )
             return success, stdout, stderr, return_code
         else:
-            # Non-streaming execution
             try:
-                # Use plumbum's run with retcode=None to get (retcode, stdout, stderr) tuple
-                # This doesn't raise on non-zero exit codes
-                # Note: run() should return strings by default, but we'll handle bytes if needed
                 result = cmd.run(
                     retcode=None,
                     timeout=COMMAND_TIMEOUT_SECONDS,
                 )
                 
-                # Clean up temporary script if created
                 _cleanup_script(script_path)
                 
-                # Plumbum's run(retcode=None) returns (retcode, stdout, stderr) tuple
-                # Handle different possible return formats and ensure strings
                 if isinstance(result, tuple):
                     if len(result) >= 3:
                         return_code, stdout, stderr = result[0], result[1], result[2]
                     elif len(result) == 2:
-                        # Some versions return (retcode, stdout)
                         return_code, stdout = result[0], result[1]
                         stderr = ""
                     else:
@@ -410,18 +371,15 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
                         stdout = result[1] if len(result) > 1 else ""
                         stderr = result[2] if len(result) > 2 else ""
                     
-                    # Ensure stdout and stderr are strings (decode bytes if needed)
                     stdout = _ensure_string(stdout)
                     stderr = _ensure_string(stderr)
                 else:
-                    # Fallback - treat as success with stdout
                     return_code = 0
                     stdout = _ensure_string(result)
                     stderr = ""
                 
                 success = return_code == 0
                 
-                # Record command execution for summary report
                 if automation_logger:
                     automation_logger.record_command_execution(
                         command=original_command,
@@ -442,15 +400,12 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
                 return False, "", "Command timed out", 124
             
             except ProcessExecutionError as e:
-                # Command failed with non-zero exit code
                 stdout = _ensure_string(e.stdout if hasattr(e, 'stdout') else "")
                 stderr = _ensure_string(e.stderr if hasattr(e, 'stderr') else str(e))
                 return_code = e.retcode if hasattr(e, 'retcode') else 1
                 
-                # Clean up temporary script if created
                 _cleanup_script(script_path)
                 
-                # Record command execution for summary report
                 if automation_logger:
                     automation_logger.record_command_execution(
                         command=original_command,
@@ -465,12 +420,10 @@ def execute_command(command: str, confirm: bool = True, cwd: Optional[str] = Non
     except Exception as e:
         error_msg = f"Error executing command: {str(e)}"
         render_error(error_msg)
-        # Also print the exception type and traceback for debugging
         render_error(f"Exception type: {type(e).__name__}")
         render_error(f"Traceback: {traceback.format_exc()}")
         if automation_logger:
             automation_logger.log_error(f"{error_msg}: {command}")
-        # Clean up script on error
         if 'script_path' in locals():
             _cleanup_script(script_path)
         return False, "", str(e), 1
@@ -498,18 +451,12 @@ def _execute_command_streaming(
     stderr_lines: List[str] = []
     
     try:
-        # Use plumbum's popen() for streaming
-        # Plumbum's popen() returns a process object that should work like subprocess.Popen
-        # Pass text=True to get strings instead of bytes
         process = cmd.popen(text=True)
         
         def read_stdout():
             try:
-                # Plumbum's process.stdout can be iterated directly
-                # With text=True, it should return strings, but handle bytes as fallback
                 if hasattr(process, 'stdout') and process.stdout:
                     for line in process.stdout:
-                        # Convert to string (handles bytes, str, and other types)
                         line = _ensure_string(line)
                         line = line.rstrip('\n\r')
                         if line:
@@ -517,18 +464,14 @@ def _execute_command_streaming(
                             print(line)
                             sys.stdout.flush()
             except Exception as e:
-                # Log the exception for debugging
                 error_msg = f"Error reading stdout: {type(e).__name__}: {e}"
                 stderr_lines.append(error_msg)
                 render_error(f"{error_msg}\n{traceback.format_exc()}")
         
         def read_stderr():
             try:
-                # Plumbum's process.stderr can be iterated directly
-                # With text=True, it should return strings, but handle bytes as fallback
                 if hasattr(process, 'stderr') and process.stderr:
                     for line in process.stderr:
-                        # Convert to string (handles bytes, str, and other types)
                         line = _ensure_string(line)
                         line = line.rstrip('\n\r')
                         if line:
@@ -536,22 +479,18 @@ def _execute_command_streaming(
                             print(line, file=sys.stderr)
                             sys.stderr.flush()
             except Exception as e:
-                # Log the exception for debugging
                 error_msg = f"Error reading stderr: {type(e).__name__}: {e}"
                 stderr_lines.append(error_msg)
                 render_error(f"{error_msg}\n{traceback.format_exc()}")
         
-        # Start reading threads
         stdout_thread = threading.Thread(target=read_stdout, daemon=True)
         stderr_thread = threading.Thread(target=read_stderr, daemon=True)
         stdout_thread.start()
         stderr_thread.start()
         
-        # Wait for process to complete with timeout
         start_time = time.time()
         
         try:
-            # Poll process until it completes or times out
             return_code = None
             while True:
                 return_code = _get_process_return_code(process)
@@ -559,12 +498,10 @@ def _execute_command_streaming(
                 if return_code is not None:
                     break
                 
-                # Check for timeout
                 if time.time() - start_time > COMMAND_TIMEOUT_SECONDS:
                     try:
                         process.kill()
                     except (AttributeError, OSError):
-                        # If kill() doesn't work, try terminate()
                         try:
                             process.terminate()
                         except (AttributeError, OSError):
@@ -580,24 +517,20 @@ def _execute_command_streaming(
             _cleanup_script(script_path)
             return False, '\n'.join(stdout_lines), '\n'.join(stderr_lines), 124
         
-        # Wait for threads to finish reading
         stdout_thread.join(timeout=2)
         stderr_thread.join(timeout=2)
         
-        # Ensure we have a valid return code
         if return_code is None:
             return_code = _get_process_return_code(process)
             if return_code is None:
-                return_code = 0  # Default to success if we can't determine
+                return_code = 0
         
-        # Clean up temporary script if created
         _cleanup_script(script_path)
         
         success = return_code == 0
         stdout = '\n'.join(stdout_lines)
         stderr = '\n'.join(stderr_lines)
         
-        # Record streaming command execution for summary
         if automation_logger:
             automation_logger.record_command_execution(
                 command=original_command,
@@ -610,15 +543,12 @@ def _execute_command_streaming(
         return success, stdout, stderr, return_code
         
     except ProcessExecutionError as e:
-        # Command failed
         stdout = _ensure_string(e.stdout if hasattr(e, 'stdout') else '\n'.join(stdout_lines))
         stderr = _ensure_string(e.stderr if hasattr(e, 'stderr') else str(e))
         return_code = e.retcode if hasattr(e, 'retcode') else 1
         
-        # Clean up temporary script on error
         _cleanup_script(script_path)
         
-        # Record error
         if automation_logger:
             automation_logger.record_command_execution(
                 command=original_command,
@@ -631,7 +561,6 @@ def _execute_command_streaming(
         return False, stdout, stderr, return_code
         
     except Exception as e:
-        # Clean up temporary script on error
         _cleanup_script(script_path)
         render_error(f"Error executing command: {str(e)}")
         return False, '\n'.join(stdout_lines), '\n'.join(stderr_lines), 1
@@ -655,41 +584,32 @@ def _platform_matches(plan: CommandPlan, context: Optional[Dict]) -> bool:
     distribution_id = str(os_info.get("distribution_id", "")).lower()
     distribution = str(os_info.get("distribution", "")).lower()
 
-    # Build set of current system identifiers
     values = {system_name, distribution_id, distribution}
     values = {v for v in values if v}
     
-    # Add platform aliases for better matching
-    # macOS/Darwin aliases
     if system_name == "darwin":
         values.add("darwin")
         values.add("macos")
         values.add("mac")
         values.add("osx")
     
-    # Linux distribution aliases
     if system_name == "linux":
         values.add("linux")
         values.add("unix")
-        # Add common distribution aliases
         if distribution_id:
             values.add(distribution_id)
         if distribution:
             values.add(distribution)
     
-    # Windows aliases
     if system_name == "windows":
         values.add("windows")
         values.add("win")
         values.add("win32")
     
-    # Check for generic platform identifiers that match any Unix-like system
     generic_unix = {"unix", "posix", "linux", "darwin", "macos", "mac", "osx", "bsd"}
     if candidates & generic_unix and system_name in {"linux", "darwin", "freebsd", "openbsd", "netbsd"}:
-        # If plan specifies generic Unix and we're on a Unix-like system, it matches
         return True
     
-    # Check for exact matches
     return bool(candidates & values)
 
 
@@ -717,7 +637,6 @@ def execute_plan(plan: CommandPlan, confirm: bool = True, context: Optional[Dict
     if plan.notes:
         render_info(f"Notes: {plan.notes}")
 
-    # Check platform compatibility (warn but don't abort)
     if context is not None and plan.platform is not None and not _platform_matches(plan, context):
         os_info = context.get("os", {}) if isinstance(context, dict) else {}
         current_system = os_info.get("system", "unknown")
@@ -781,12 +700,10 @@ def execute_commands_from_response(
     """
     results: List[ExecutionResult] = []
     
-    # Validate AI response before extracting commands
     from dav.input_validator import validate_ai_response
     is_valid, validation_error = validate_ai_response(response)
     if not is_valid:
         render_warning(f"AI response validation warning: {validation_error}")
-        # Continue but log the warning
         if automation_logger:
             automation_logger.log_warning(f"Response validation warning: {validation_error}")
     
@@ -811,7 +728,7 @@ def execute_commands_from_response(
         success, stdout, stderr, return_code = execute_command(
             command, 
             confirm=confirm,
-            stream_output=not automation_mode,  # Don't stream in automation mode
+            stream_output=not automation_mode,
             automation_mode=automation_mode,
             automation_logger=automation_logger,
         )
