@@ -173,4 +173,23 @@ def get_provider_priority() -> List[str]:
     return ["openai", "anthropic", "gemini"]
 
 
+def get_nvd_api_key() -> Optional[str]:
+    """Get NVD API key from environment."""
+    return os.getenv("DAV_NVD_API_KEY") or os.getenv("NVD_API_KEY")
+
+
+def get_cve_cache_dir() -> Path:
+    """Get directory for CVE cache files."""
+    cache_dir = os.getenv("DAV_CVE_CACHE_DIR")
+    if cache_dir:
+        return Path(cache_dir).expanduser()
+    return Path.home() / ".dav" / "cve_cache"
+
+
+def get_cve_cache_ttl() -> int:
+    """Get CVE cache TTL in seconds (default: 24 hours)."""
+    try:
+        return int(os.getenv("DAV_CVE_CACHE_TTL", "86400"))
+    except ValueError:
+        return 86400
 

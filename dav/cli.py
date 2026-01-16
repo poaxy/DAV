@@ -17,6 +17,8 @@ app = typer.Typer(help="Dav - An intelligent, context-aware AI assistant for the
 console = Console()
 
 
+
+
 def _check_setup_needed() -> bool:
     """Check if Dav setup is needed (no configuration file or missing API keys).
     
@@ -96,6 +98,11 @@ def main(
     schedule: Optional[str] = typer.Option(None, "--schedule", help="Schedule a cron job with natural language (e.g., 'update system every night at 3')"),
     cron_setup: bool = typer.Option(False, "--cron-setup", help="Show cron setup examples and instructions"),
     install_for_root: bool = typer.Option(False, "--install-for-root", help="Install Dav for root user (alternative to sudoers)"),
+    cve: Optional[str] = typer.Option(
+        None,
+        "--cve",
+        help="Perform vulnerability scan. Use 'scan' for full system scan, or provide a query for AI analysis. Usage: 'dav --cve scan' or 'dav --cve \"your query\"'"
+    ),
 ):
     """Dav - An intelligent, context-aware AI assistant for the Linux terminal."""
     
@@ -165,6 +172,20 @@ def main(
     
     if schedule:
         _handle_schedule_command(schedule)
+        return
+    
+    # Handle CVE operations early (before AI processing)
+    # Check if --cve flag was provided (even if value is None)
+    cve_flag_provided = "--cve" in sys.argv
+    
+    if cve_flag_provided:
+        from dav.vulnerability.cli import handle_cve_command
+        # If cve is None or empty string, default to "scan"
+        if cve is None or (isinstance(cve, str) and not cve.strip()):
+            cve_arg = "scan"
+        else:
+            cve_arg = cve.strip()
+        handle_cve_command(cve_arg, execute, auto_confirm, automation)
         return
     
     is_automation_mode = automation

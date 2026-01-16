@@ -80,6 +80,11 @@ def render_info(message: str) -> None:
     console.print(f"[bold blue]Info:[/bold blue] {message}")
 
 
+def render_success(message: str) -> None:
+    """Render success message."""
+    console.print(f"[bold green]✓ {message}[/bold green]")
+
+
 def _get_shortened_model_name(model: str, backend: str) -> str:
     """
     Get shortened model name for display.
