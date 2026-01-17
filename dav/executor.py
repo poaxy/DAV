@@ -184,8 +184,8 @@ def extract_commands(text: str) -> List[str]:
             break
     
     # If marker is not inside a code block, look for code blocks after the marker
-    text_after_marker = text[marker_pos + len(COMMAND_EXECUTION_MARKER):]
     if not matches:
+        text_after_marker = text[marker_pos + len(COMMAND_EXECUTION_MARKER):]
         matches = re.findall(code_block_pattern, text_after_marker, re.DOTALL | re.IGNORECASE)
     
     for match in matches:
