@@ -32,28 +32,56 @@ DENY_TEXT = "Deny"
 ALLOW_COLOR = "#00ff00"  # Green
 DENY_COLOR = "#ff0000"  # Red
 
-# Pattern to match JSON command plan blocks (for filtering from display)
-# Matches ```json ... ``` blocks that contain JSON objects
-JSON_COMMAND_PLAN_PATTERN = re.compile(
+# Patterns to match JSON blocks (for filtering from display)
+JSON_CODE_BLOCK_PATTERN = re.compile(
     r"```json\s*\{.*?\}\s*```",  # Match ```json { ... } ``` blocks
+    re.DOTALL | re.IGNORECASE
+)
+JSON_OBJECT_PATTERN = re.compile(
+    r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}",  # Match standalone JSON objects
+    re.DOTALL
+)
+JSON_ARRAY_PATTERN = re.compile(
+    r"\[\s*\{.*?\}\s*\]",  # Match JSON arrays
     re.DOTALL | re.IGNORECASE
 )
 
 
 def strip_json_command_plan(text: str) -> str:
-    """Remove JSON command plan blocks from response text for display purposes.
+    """Remove JSON blocks and structures from response text for display purposes.
     
-    The JSON command plan is used internally for command extraction but should
-    not be shown to users as it's not helpful.
+    Removes JSON command plans, JSON code blocks, and standalone JSON objects
+    that are used internally but should not be shown to users.
     
     Args:
-        text: Response text that may contain JSON command plan blocks
+        text: Response text that may contain JSON blocks
         
     Returns:
-        Text with JSON command plan blocks removed
+        Text with JSON blocks removed
     """
-    # Remove JSON command plan blocks
-    cleaned = JSON_COMMAND_PLAN_PATTERN.sub("", text)
+    # Remove JSON code blocks (```json ... ```)
+    cleaned = JSON_CODE_BLOCK_PATTERN.sub("", text)
+    
+    # Remove JSON arrays that look like command plans
+    cleaned = JSON_ARRAY_PATTERN.sub("", cleaned)
+    
+    # Remove standalone JSON objects that are likely command plans
+    # Look for JSON objects that contain command-related keys
+    def is_json_command_plan(match):
+        json_str = match.group(0)
+        # Check if it contains command plan indicators
+        if any(key in json_str.lower() for key in ['"command"', '"action"', '"step"', '"plan"', '"exec"']):
+            return True
+        return False
+    
+    # Remove JSON objects that look like command plans
+    cleaned = JSON_OBJECT_PATTERN.sub(
+        lambda m: "" if is_json_command_plan(m) else m.group(0),
+        cleaned
+    )
+    
+    # Remove any remaining JSON-like structures in code blocks
+    cleaned = re.sub(r"```\s*\{.*?\}\s*```", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
     
     # Clean up any extra whitespace/newlines left behind
     # Remove 3+ consecutive newlines (likely from removed JSON blocks)
