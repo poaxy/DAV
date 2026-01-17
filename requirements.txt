@@ -8,6 +8,7 @@ dateparser>=1.1.0
 questionary>=1.10.0
 plumbum>=1.8.0
 packaging>=23.0
+requests>=2.31.0
 
 # Gemini / Google AI
 google-generativeai>=0.7.0
