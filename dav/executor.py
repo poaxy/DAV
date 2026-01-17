@@ -162,11 +162,32 @@ def extract_commands(text: str) -> List[str]:
     if marker_pos == -1:
         return []
     
-    text_after_marker = text[marker_pos + len(COMMAND_EXECUTION_MARKER):]
     commands = []
     
-    code_block_pattern = r'```(?:bash|sh|shell|zsh)?\n(.*?)```'
-    matches = re.findall(code_block_pattern, text_after_marker, re.DOTALL | re.IGNORECASE)
+    # First, check if marker is inside a code block
+    # Find all code blocks and check if any contain the marker
+    code_block_pattern = r'```(?:bash|sh|shell|zsh)?\s*\n?(.*?)```'
+    all_code_blocks = re.finditer(code_block_pattern, text, re.DOTALL | re.IGNORECASE)
+    
+    matches = []
+    for match_obj in all_code_blocks:
+        code_block_content = match_obj.group(1)
+        block_start = match_obj.start()
+        block_end = match_obj.end()
+        
+        # Check if marker is inside this code block
+        if block_start <= marker_pos < block_end:
+            # Marker is inside this code block, extract content after marker
+            marker_in_block = marker_pos - block_start
+            content_after_marker = code_block_content[marker_in_block + len(COMMAND_EXECUTION_MARKER):]
+            matches.append(content_after_marker.strip())
+            break
+    
+    # If marker is not inside a code block, look for code blocks after the marker
+    if not matches:
+        text_after_marker = text[marker_pos + len(COMMAND_EXECUTION_MARKER):]
+        matches = re.findall(code_block_pattern, text_after_marker, re.DOTALL | re.IGNORECASE)
+    
     for match in matches:
         code_block = match.strip()
         if not code_block:
