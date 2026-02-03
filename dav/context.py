@@ -252,7 +252,10 @@ def format_context_for_prompt(context: Dict[str, Any], command_outputs: Optional
         lines.append("")
     
     if "stdin" in context:
-        lines.append("## Piped Input (internal content to analyze)")
+        if context.get("log_mode"):
+            lines.append("## Log Input (piped logs; internal content to analyze)")
+        else:
+            lines.append("## Piped Input (internal content to analyze)")
         lines.append("```")
         lines.append(context["stdin"])
         lines.append("```")

@@ -103,6 +103,12 @@ def main(
         "--cve",
         help="Perform vulnerability scan. Use 'scan' for full system scan, or provide a query for AI analysis. Usage: 'dav --cve scan' or 'dav --cve \"your query\"'"
     ),
+    log_mode: bool = typer.Option(
+        False,
+        "-log",
+        "--log",
+        help="Treat stdin as log content and analyze it. Usage: cat app.log | dav -log \"why is my app crashing\"",
+    ),
 ):
     """Dav - An intelligent, context-aware AI assistant for the Linux terminal."""
     
@@ -174,11 +180,23 @@ def main(
         _handle_schedule_command(schedule)
         return
     
+    # Disallow incompatible mode combinations early
+    if log_mode and automation:
+        from dav.terminal import render_error
+        
+        render_error("The -log/--log option cannot be used together with --automation.")
+        sys.exit(1)
+    
     # Handle CVE operations early (before AI processing)
     # Check if --cve flag was provided (even if value is None)
     cve_flag_provided = "--cve" in sys.argv
     
     if cve_flag_provided:
+        if log_mode:
+            from dav.terminal import render_error
+            
+            render_error("The -log/--log option cannot be used together with --cve.")
+            sys.exit(1)
         from dav.vulnerability.cli import handle_cve_command
         # If cve is None or empty string, default to "scan"
         if cve is None or (isinstance(cve, str) and not cve.strip()):
@@ -193,15 +211,39 @@ def main(
         is_automation_mode = True
         console.print("[yellow]Auto-detected automation mode (non-TTY)[/yellow]")
     
+    # Read stdin content once so it can be reused consistently
     stdin_content = None
-    if not query:
-        try:
-            if not sys.stdin.isatty():
-                stdin_content = sys.stdin.read()
-        except Exception:
-            pass
+    try:
+        if not sys.stdin.isatty():
+            stdin_content = sys.stdin.read()
+    except Exception:
+        stdin_content = None
+    
+    # Handle log mode stdin behavior
+    if log_mode:
+        from dav.terminal import render_error, render_warning
         
-        if stdin_content:
+        if sys.stdin.isatty() or not stdin_content:
+            render_error(
+                "The -log/--log option requires log content via stdin (e.g., 'cat app.log | dav -log')."
+            )
+            sys.exit(1)
+        
+        # Log mode is analysis-only: disable automation and execution
+        if is_automation_mode:
+            is_automation_mode = False
+            render_warning("Ignoring auto-detected automation mode for -log; running analysis-only.")
+        
+        if execute:
+            render_warning("Ignoring --execute for -log; running in analysis-only log analysis mode.")
+            execute = False
+        
+        # If no explicit query provided, use a log-focused default
+        if not query:
+            query = "analyze these logs"
+    else:
+        # Default stdin behavior when not in log mode
+        if not query and stdin_content:
             query = "analyze this"
     
     if _auto_setup_if_needed():
@@ -296,6 +338,7 @@ def main(
         execute_mode=execute,
         interactive_mode=False,
         automation_mode=is_automation_mode,
+        log_mode=log_mode,
     )
     
     try:
@@ -330,6 +373,7 @@ def main(
             is_interactive=False,
             automation_mode=is_automation_mode,
             automation_logger=automation_logger,
+            log_mode=log_mode,
         )
         
         if automation_logger:
@@ -359,6 +403,7 @@ def _build_prompt_with_context(
     interactive_mode: bool = False,
     automation_mode: bool = False,
     command_outputs: Optional[List[Dict[str, Any]]] = None,
+    log_mode: bool = False,
 ) -> Tuple[Dict, str, str]:
     """
     Build prompt with context and session history.
@@ -379,6 +424,11 @@ def _build_prompt_with_context(
     from dav.ai_backend import get_system_prompt
     
     context = build_context(query=query, stdin_content=stdin_content)
+    
+    # Annotate context when in dedicated log analysis mode
+    if log_mode:
+        context["log_mode"] = True
+    
     context_str = format_context_for_prompt(context, command_outputs=command_outputs)
     
     session_context = session_manager.get_conversation_context()
@@ -401,6 +451,7 @@ def _process_response(
     is_interactive: bool = False,
     automation_mode: bool = False,
     automation_logger: Optional[Any] = None,
+    log_mode: bool = False,
 ) -> None:
     """
     Process and save response, optionally execute commands.
@@ -423,7 +474,8 @@ def _process_response(
     session_manager.add_message("user", query)
     session_manager.add_message("assistant", response)
     
-    should_execute = execute or get_execute_permission()
+    # Log mode is strictly analysis-only: never execute commands
+    should_execute = (execute or get_execute_permission()) and not log_mode
     if should_execute:
         has_marker = COMMAND_EXECUTION_MARKER in response
         
@@ -857,6 +909,7 @@ def _process_query_with_ai(query: str, ai_backend: FailoverAIBackend, session_ma
         auto_confirm,
         context_data,
         is_interactive=True,
+        log_mode=False,
     )
     
     console.print()
