@@ -435,7 +435,12 @@ def _build_prompt_with_context(
     if session_context:
         context_str = session_context + "\n" + context_str
     
-    system_prompt = get_system_prompt(execute_mode=execute_mode, interactive_mode=interactive_mode, automation_mode=automation_mode)
+    system_prompt = get_system_prompt(
+        execute_mode=execute_mode,
+        interactive_mode=interactive_mode,
+        automation_mode=automation_mode,
+        log_mode=log_mode,
+    )
     
     return context, context_str, system_prompt
 
