@@ -182,23 +182,20 @@ def format_context_for_prompt(context: Dict[str, Any], command_outputs: Optional
     system = os_info.get("system", "unknown")
     lines.append(f"- Operating System: {system}")
     
+    # Keep OS details compact: focus on family + distro/version
     if system == "Linux":
-        if "distribution" in os_info:
-            distro_name = os_info.get("distribution_pretty_name") or os_info.get("distribution", "Unknown")
-            distro_version = os_info.get("distribution_version", "")
+        distro_name = os_info.get("distribution_pretty_name") or os_info.get("distribution")
+        distro_version = os_info.get("distribution_version")
+        if distro_name:
             if distro_version and distro_version != "unknown":
                 lines.append(f"- Linux Distribution: {distro_name} (Version: {distro_version})")
             else:
                 lines.append(f"- Linux Distribution: {distro_name}")
-            
-            if "distribution_codename" in os_info:
-                lines.append(f"- Distribution Codename: {os_info['distribution_codename']}")
-        
-        lines.append(f"- Kernel Version: {os_info.get('release', 'unknown')}")
-    else:
+    elif system == "Darwin":
+        # macOS – keep just the release
         lines.append(f"- Release: {os_info.get('release', 'unknown')}")
     
-    lines.append(f"- Platform: {os_info.get('platform', 'unknown')}")
+    # Architecture is often useful; platform string is usually redundant noise
     lines.append(f"- Architecture: {os_info.get('machine', 'unknown')}")
     lines.append("")
     
@@ -208,15 +205,12 @@ def format_context_for_prompt(context: Dict[str, Any], command_outputs: Optional
     
     contents = dir_info.get("contents", [])
     if isinstance(contents, list) and contents:
-        lines.append("- Contents:")
+        lines.append("- Contents (truncated list of items):")
         for item in contents:
             item_type = item.get("type", "unknown")
             item_name = item.get("name", "unknown")
-            if item_type == "file":
-                size = item.get("size", 0)
-                lines.append(f"  - {item_name} (file, {size} bytes)")
-            else:
-                lines.append(f"  - {item_name} (directory)")
+            label = "dir" if item_type == "directory" else "file"
+            lines.append(f"  - {item_name} ({label})")
         
         if dir_info.get("contents_truncated"):
             lines.append(f"  ... (showing first {MAX_DIR_FILES} items)")

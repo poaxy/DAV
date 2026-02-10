@@ -247,23 +247,26 @@ class AutomationLogger:
                     summary_data.append(f"  - {warning}")
             
             execution_summary = "\n".join(summary_data)
-            prompt = f"""Based on the following automation task execution, provide a clear, concise summary in plain English.
+            prompt = f"""Based on the following automation task execution, write a clear, concise natural-language summary in plain English.
 
 {execution_summary}
 
-Please provide a summary that:
-1. Explains what the task was trying to accomplish
-2. Lists what commands were executed and their outcomes
-3. Explains what the results mean (success, failure, what was accomplished)
-4. Notes any errors or issues encountered
-5. Concludes with the overall status of the task
+Your summary should:
+1. Briefly explain what the task was trying to accomplish.
+2. Describe which commands ran and whether they succeeded or failed (at a high level).
+3. Explain what the overall results mean (what was actually accomplished).
+4. Mention any important errors or warnings.
+5. Conclude with the overall status of the task.
 
-Keep it concise but informative. Write it as a natural summary report, not a technical log."""
+Keep it concise and readable, like a short human-written report, not a technical log dump."""
             
             try:
                 from dav.ai_backend import FailoverAIBackend
                 ai_backend = FailoverAIBackend()
-                ai_summary = ai_backend.get_response(prompt, system_prompt="You are a technical writer. Generate clear, concise summaries of automation task executions.")
+                ai_summary = ai_backend.get_response(
+                    prompt,
+                    system_prompt="You are a technical writer. Generate clear, concise, human-readable summaries of automation task executions."
+                )
                 return ai_summary
             except Exception as e:
                 return self.generate_summary_report(execution_results)

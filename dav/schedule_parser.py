@@ -271,10 +271,10 @@ Examples:
 - Monthly on 1st: "0 0 1 * *"
 """
         
-        system_prompt = """You are a schedule parser. Extract the task description and convert the schedule to cron format.
-The user input may contain both the task and schedule in one sentence. Separate them correctly.
-Return ONLY valid JSON with "task" and "schedule" fields. Do not include any explanation or markdown formatting.
-The schedule field must be a valid 5-field cron expression."""
+        system_prompt = """You are a schedule parser.
+Extract the task description and convert the requested schedule to a 5-field cron expression.
+The user input may contain both task and schedule in one sentence; separate them correctly.
+Return ONLY valid JSON with \"task\" and \"schedule\" fields, with no extra text or formatting."""
         
         try:
             response = ai_backend.get_response(schedule_prompt, system_prompt=system_prompt)

@@ -22,18 +22,31 @@ class ContextUsage:
 class ContextTracker:
     """Track context usage across all components."""
     
-    def __init__(self, backend: str, model: Optional[str] = None):
+    def __init__(
+        self,
+        backend: str,
+        model: Optional[str] = None,
+        execute_mode: bool = False,
+        interactive_mode: bool = False,
+        log_mode: bool = False,
+    ):
         """
         Initialize context tracker.
         
         Args:
             backend: AI backend ("openai", "anthropic", or "gemini")
             model: Model name
+            execute_mode: Whether the assistant is expected to execute commands
+            interactive_mode: Whether this is an interactive execute session
+            log_mode: Whether this is specialized log-analysis mode
         """
         self.backend = backend
         self.model = model or self._get_default_model()
         self.max_tokens = self._get_max_tokens()
         self.system_prompt_tokens = 0
+        self._execute_mode = execute_mode
+        self._interactive_mode = interactive_mode
+        self._log_mode = log_mode
         self._cache_system_prompt()
     
     def _get_default_model(self) -> str:
@@ -74,11 +87,21 @@ class ContextTracker:
         return 80_000  # Safe default
     
     def _cache_system_prompt(self):
-        """Cache system prompt token count (only calculated once)."""
+        """Cache system prompt token count (only calculated once).
+
+        We deliberately use the same mode flags that the live assistant will use
+        so that measurements reflect the actual prompt shape (e.g., analysis-only
+        vs. execute modes). This helps keep context budgeting accurate and avoids
+        overestimating usage for simple analysis queries.
+        """
         from dav.ai_backend import get_system_prompt
         
-        # Get system prompt for interactive execute mode
-        system_prompt = get_system_prompt(execute_mode=True, interactive_mode=True)
+        system_prompt = get_system_prompt(
+            execute_mode=self._execute_mode,
+            interactive_mode=self._interactive_mode,
+            automation_mode=False,
+            log_mode=self._log_mode,
+        )
         self.system_prompt_tokens = count_tokens(
             system_prompt, 
             self.backend, 

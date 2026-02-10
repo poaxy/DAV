@@ -678,7 +678,12 @@ def _execute_with_feedback_loop(
         else:
             full_feedback_prompt = feedback_prompt
         
-        system_prompt = get_system_prompt(execute_mode=True, interactive_mode=is_interactive)
+        system_prompt = get_system_prompt(
+            execute_mode=True,
+            interactive_mode=is_interactive,
+            automation_mode=False,
+            log_mode=False,
+        )
         
         backend_name = ai_backend.backend.title()
         followup_response = render_streaming_response_with_loading(
@@ -1057,7 +1062,15 @@ def run_interactive_mode(ai_backend: FailoverAIBackend,
     
     console.clear()
     
-    context_tracker = ContextTracker(backend=ai_backend.backend, model=ai_backend.model)
+    # Track context usage using the same mode flags that will be used for prompts.
+    # In interactive mode, `execute` indicates whether Dav is allowed to run commands.
+    context_tracker = ContextTracker(
+        backend=ai_backend.backend,
+        model=ai_backend.model,
+        execute_mode=execute,
+        interactive_mode=True,
+        log_mode=False,
+    )
     
     render_dav_banner()
     
