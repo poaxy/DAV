@@ -103,10 +103,8 @@ DAV_SESSION_DIR=~/.dav/sessions
 # DAV_MAX_CONTEXT_TOKENS=80000  # Maximum tokens for context window
 # DAV_MAX_CONTEXT_MESSAGES=100  # Maximum messages to include in context
 
-# Automation Settings (optional)
-# DAV_AUTOMATION_SUDO_METHOD=sudoers  # Options: sudoers, root
-# DAV_AUTOMATION_LOG_DIR=~/.dav/logs  # Directory for automation logs
-# DAV_AUTOMATION_LOG_RETENTION_DAYS=30  # Days to retain automation logs
+# Script Settings (optional)
+# DAV_SCRIPTS_DIR=~/.dav/scripts      # Directory for generated scripts
 """
     elif backend == "anthropic":
         env_content = f"""# Dav Configuration
@@ -138,10 +136,8 @@ DAV_SESSION_DIR=~/.dav/sessions
 # DAV_MAX_CONTEXT_TOKENS=80000  # Maximum tokens for context window
 # DAV_MAX_CONTEXT_MESSAGES=100  # Maximum messages to include in context
 
-# Automation Settings (optional)
-# DAV_AUTOMATION_SUDO_METHOD=sudoers  # Options: sudoers, root
-# DAV_AUTOMATION_LOG_DIR=~/.dav/logs  # Directory for automation logs
-# DAV_AUTOMATION_LOG_RETENTION_DAYS=30  # Days to retain automation logs
+# Script Settings (optional)
+# DAV_SCRIPTS_DIR=~/.dav/scripts      # Directory for generated scripts
 """
     else:  # gemini
         env_content = f"""# Dav Configuration
@@ -174,10 +170,8 @@ DAV_SESSION_DIR=~/.dav/sessions
 # DAV_MAX_CONTEXT_TOKENS=80000  # Maximum tokens for context window
 # DAV_MAX_CONTEXT_MESSAGES=100  # Maximum messages to include in context
 
-# Automation Settings (optional)
-# DAV_AUTOMATION_SUDO_METHOD=sudoers  # Options: sudoers, root
-# DAV_AUTOMATION_LOG_DIR=~/.dav/logs  # Directory for automation logs
-# DAV_AUTOMATION_LOG_RETENTION_DAYS=30  # Days to retain automation logs
+# Script Settings (optional)
+# DAV_SCRIPTS_DIR=~/.dav/scripts      # Directory for generated scripts
 """
     
     try:
@@ -359,10 +353,8 @@ DAV_SESSION_DIR=/root/.dav/sessions
 # DAV_MAX_CONTEXT_TOKENS=80000  # Maximum tokens for context window
 # DAV_MAX_CONTEXT_MESSAGES=100  # Maximum messages to include in context
 
-# Automation Settings (optional)
-# DAV_AUTOMATION_SUDO_METHOD=sudoers  # Options: sudoers, root
-# DAV_AUTOMATION_LOG_DIR=/root/.dav/logs  # Directory for automation logs
-# DAV_AUTOMATION_LOG_RETENTION_DAYS=30  # Days to retain automation logs
+# Script Settings (optional)
+# DAV_SCRIPTS_DIR=/root/.dav/scripts      # Directory for generated scripts
 """
         elif backend == "anthropic":
             env_content = f"""# Dav Configuration for root user
@@ -394,10 +386,8 @@ DAV_SESSION_DIR=/root/.dav/sessions
 # DAV_MAX_CONTEXT_TOKENS=80000  # Maximum tokens for context window
 # DAV_MAX_CONTEXT_MESSAGES=100  # Maximum messages to include in context
 
-# Automation Settings (optional)
-# DAV_AUTOMATION_SUDO_METHOD=sudoers  # Options: sudoers, root
-# DAV_AUTOMATION_LOG_DIR=/root/.dav/logs  # Directory for automation logs
-# DAV_AUTOMATION_LOG_RETENTION_DAYS=30  # Days to retain automation logs
+# Script Settings (optional)
+# DAV_SCRIPTS_DIR=/root/.dav/scripts      # Directory for generated scripts
 """
         else:
             env_content = f"""# Dav Configuration for root user
@@ -430,10 +420,8 @@ DAV_SESSION_DIR=/root/.dav/sessions
 # DAV_MAX_CONTEXT_TOKENS=80000  # Maximum tokens for context window
 # DAV_MAX_CONTEXT_MESSAGES=100  # Maximum messages to include in context
 
-# Automation Settings (optional)
-# DAV_AUTOMATION_SUDO_METHOD=sudoers  # Options: sudoers, root
-# DAV_AUTOMATION_LOG_DIR=/root/.dav/logs  # Directory for automation logs
-# DAV_AUTOMATION_LOG_RETENTION_DAYS=30  # Days to retain automation logs
+# Script Settings (optional)
+# DAV_SCRIPTS_DIR=/root/.dav/scripts      # Directory for generated scripts
 """
         
         # Write as root
@@ -458,8 +446,8 @@ DAV_SESSION_DIR=/root/.dav/sessions
     # Success message
     console.print("\n[bold green]✓ Root installation complete![/bold green]\n")
     console.print("You can now use Dav as root:")
-    console.print("  [cyan]sudo dav --automation \"your task\"[/cyan]\n")
-    console.print("Or set up cron jobs as root:")
+    console.print("  [cyan]sudo dav --script \"write a script to update system packages\"[/cyan]\n")
+    console.print("Or set up cron jobs as root with your generated scripts:")
     console.print("  [cyan]sudo crontab -e[/cyan]\n")
     console.print("[yellow]Security reminder:[/yellow] Root has full system access. Use with caution.")
 

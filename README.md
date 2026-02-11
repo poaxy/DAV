@@ -74,10 +74,10 @@ Dav follows a **security-first** approach: it analyzes requests, understands con
    - Error pattern detection and root cause analysis
    - Actionable recommendations based on findings
 
-6. **Automation & Scheduling**
-   - Automation mode for non-interactive execution
-   - Natural language cron job scheduling
-   - Automated task logging and reporting
+6. **Script-Based Automation**
+   - Generate reusable bash scripts from natural language (`dav --script "..."`)
+   - Optional immediate execution with human-in-the-loop confirmation
+   - Easy to inspect, edit, and integrate with tools like `cron`
 
 7. **Security Features**
    - Shell injection protection
@@ -98,7 +98,7 @@ Dav follows a **security-first** approach: it analyzes requests, understands con
 | **Terminal Integration** | ✅ Native terminal tool | ❌ Browser-based |
 | **Session Persistence** | ✅ Automatic across sessions | ❌ Per-conversation only |
 | **Piped Input** | ✅ Automatic detection | ❌ Manual input required |
-| **Automation** | ✅ Cron scheduling, automation mode | ❌ Not available |
+| **Automation** | ✅ Script generation and safe execution | ❌ Not available |
 | **Feedback Loops** | ✅ Automatic command result analysis | ❌ Manual iteration |
 
 ### Dav vs. ShellGPT/AI Shell Tools
@@ -109,7 +109,7 @@ Dav follows a **security-first** approach: it analyzes requests, understands con
 | **Context Awareness** | ✅ Full system context (OS, directory, stdin) | ⚠️ Limited context |
 | **Security** | ✅ Dangerous command detection, validation | ⚠️ Varies by tool |
 | **Feedback Loops** | ✅ Automatic multi-step execution | ⚠️ Usually single-step |
-| **Scheduling** | ✅ Natural language cron scheduling | ❌ Not available |
+| **Scheduling** | ⚠️ Manual via generated scripts | ❌ Not available |
 | **Session Management** | ✅ Persistent sessions across terminals | ⚠️ Limited or none |
 
 ### Dav vs. Traditional Shell Scripts
@@ -327,42 +327,23 @@ ps aux | dav "which processes are using the most memory?"
 cat error.log | dav "explain these errors"
 ```
 
-### Automation Mode
+### Script-Based Automation
 
-Run non-interactive tasks with automatic execution:
-
-```bash
-# Automation mode (no confirmations, auto-execute, logging)
-dav --automation "update system packages and clean cache"
-
-# Automation mode with piped input
-cat maintenance.sh | dav --automation "review and execute this script"
-```
-
-### Scheduling Tasks
-
-Schedule tasks using natural language:
+Generate reusable bash scripts from natural language requests:
 
 ```bash
-# Schedule a daily task
-dav --schedule "update system packages every day at 3 AM"
+# Create a maintenance script
+dav --script "write a script to update system packages and clean cache"
 
-# Schedule a weekly task
-dav --schedule "clean log files every Sunday at midnight"
-
-# Schedule a custom task
-dav --schedule "check disk space every 6 hours"
+# Create a backup script
+dav --script "write a script to back up /home to /backup with compression"
 ```
 
-View and manage cron jobs:
+For each `--script` call, Dav will:
 
-```bash
-# View scheduled tasks
-crontab -l
-
-# Edit cron jobs manually
-crontab -e
-```
+- Generate a bash script under `~/.dav/scripts/`
+- Show you the script contents
+- Ask with **Allow/Deny** whether to run it now (optionally as root via `sudo`)
 
 ### Update Dav
 
@@ -596,36 +577,19 @@ dav "list Docker images and show disk usage"
 
 ### Scenario 10: Automation & Scheduled Tasks
 
-**One-time automation:**
+**Create automation scripts:**
 
 ```bash
-# Maintenance task
-dav --automation "update packages, clean cache, and remove old logs"
+# Maintenance task script
+dav --script "write a script to update packages, clean cache, and remove old logs"
 
-# Backup task
-dav --automation "backup important files to /backup directory"
+# Backup task script
+dav --script "write a script to back up important files to /backup directory"
 ```
 
-**Scheduled automation:**
-
-```bash
-# Daily updates
-dav --schedule "update system packages every day at 3 AM"
-
-# Weekly cleanup
-dav --schedule "clean log files and temporary files every Sunday at 2 AM"
-
-# Hourly monitoring
-dav --schedule "check disk space every 6 hours and alert if above 90%"
-```
-
-**View automation logs:**
-
-```bash
-# Logs are saved to ~/.dav/logs/
-ls ~/.dav/logs/
-cat ~/.dav/logs/dav_20240101_030000.log
-```
+You can then:
+- Re-run these scripts manually whenever needed, or
+- Add them to your own `crontab` if you want scheduled execution.
 
 ### Scenario 11: Development & DevOps
 
@@ -701,10 +665,8 @@ DAV_MAX_STDIN_CHARS=32000        # Maximum stdin characters to capture
 DAV_MAX_CONTEXT_TOKENS=80000     # Maximum tokens for context window
 DAV_MAX_CONTEXT_MESSAGES=100     # Maximum messages to include in context
 
-# Automation Settings
-DAV_AUTOMATION_SUDO_METHOD=sudoers  # Options: "sudoers", "root"
-DAV_AUTOMATION_LOG_DIR=~/.dav/logs  # Directory for automation logs
-DAV_AUTOMATION_LOG_RETENTION_DAYS=30  # Days to retain automation logs
+# Script Storage (optional override)
+# DAV_SCRIPTS_DIR=~/.dav/scripts      # Directory for generated scripts
 ```
 
 ### Multi-Provider Setup (Failover)
@@ -723,21 +685,6 @@ GEMINI_API_KEY=sk-gem-...
 
 If the primary provider fails, Dav automatically switches to available backup providers.
 
-### Sudoers Configuration (for Automation)
-
-For automation tasks requiring sudo, configure password-less sudo:
-
-```bash
-dav --cron-setup
-```
-
-This will:
-- Check current sudoers configuration
-- Optionally configure NOPASSWD for specific commands
-- Provide instructions for manual configuration
-
----
-
 ## Security
 
 ### Built-in Security Features
@@ -745,7 +692,7 @@ This will:
 1. **Dangerous Command Detection**
    - Blocks destructive commands (`rm -rf /`, `dd if=/dev/zero`, etc.)
    - Requires explicit user request for dangerous operations
-   - Special checks for automation mode (blocks reboot/shutdown)
+   - Extra checks around reboot/shutdown and other system-level operations
 
 2. **Command Validation**
    - Shell injection protection
@@ -763,15 +710,15 @@ This will:
    - Prompt injection detection
 
 5. **Confirmation Prompts**
-   - Always asks for confirmation before executing commands (unless `--yes` or automation mode)
+   - Always asks for confirmation before executing commands (unless `--yes` is used)
    - Shows command before execution
    - Clear warnings for potentially dangerous operations
 
 ### Security Best Practices
 
 1. **API Keys**: Store API keys securely in `~/.dav/.env` with 600 permissions
-2. **Automation**: Use automation mode only for trusted tasks
-3. **Sudoers**: Configure sudoers carefully for automation (use specific commands when possible)
+2. **Scripts**: Review generated scripts before running them, especially as root
+3. **Sudo Usage**: Configure and use `sudo` carefully for automation (use specific commands when possible)
 4. **Review Commands**: Always review commands before confirming execution
 5. **Session Files**: Session files may contain sensitive information; keep `~/.dav/sessions` secure
 
@@ -837,14 +784,6 @@ Or manually create `~/.dav/.env` with your API key.
 - Check `DAV_ALLOW_EXECUTE` setting in config
 - Review confirmation prompts (commands require approval)
 - Check command validation errors
-
-### Automation mode not working
-
-**Solution**:
-- Ensure password-less sudo is configured: `dav --cron-setup`
-- Check automation logs: `~/.dav/logs/`
-- Verify task syntax in cron: `crontab -l`
-- Use `--install-for-root` for root user installation
 
 ### Session not persisting
 

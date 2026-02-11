@@ -142,6 +142,18 @@ def get_automation_log_retention_days() -> int:
     return 30
 
 
+def get_scripts_dir() -> Path:
+    """Get directory for user-created automation scripts.
+
+    Scripts are stored under the user's .dav directory by default, but can be
+    overridden via DAV_SCRIPTS_DIR.
+    """
+    scripts_dir = os.getenv("DAV_SCRIPTS_DIR")
+    if scripts_dir:
+        return Path(scripts_dir).expanduser()
+    return Path.home() / ".dav" / "scripts"
+
+
 def is_provider_configured(backend: str) -> bool:
     """Check if a provider has an API key configured."""
     api_key = get_api_key(backend)
