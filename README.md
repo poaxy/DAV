@@ -217,7 +217,7 @@ Add your configuration:
 ```bash
 OPENAI_API_KEY=sk-your-key-here
 DAV_BACKEND=openai
-DAV_DEFAULT_MODEL=gpt-4-turbo-preview
+DAV_DEFAULT_MODEL=o4-mini
 ```
 
 Set secure permissions:
@@ -649,10 +649,10 @@ GOOGLE_API_KEY=sk-gem-...       # Alternative to GEMINI_API_KEY
 DAV_BACKEND=openai  # Options: "openai", "anthropic", "gemini"
 
 # Model Selection
-DAV_DEFAULT_MODEL=gpt-4-turbo-preview
-DAV_OPENAI_MODEL=gpt-4-turbo-preview
-DAV_ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
-DAV_GEMINI_MODEL=gemini-1.5-pro-latest
+DAV_DEFAULT_MODEL=o4-mini
+DAV_OPENAI_MODEL=o4-mini
+DAV_ANTHROPIC_MODEL=claude-sonnet-4-6
+DAV_GEMINI_MODEL=gemini-2.5-pro
 
 # Permissions
 DAV_ALLOW_EXECUTE=false  # Set to "true" to allow execution without --execute flag

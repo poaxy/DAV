@@ -115,6 +115,10 @@ def _clear_python_cache(install_location: str = None) -> None:
         pass
 
 
+# Canonical install source - always fetch latest from git
+_DAV_GIT_INSTALL = "git+https://github.com/poaxy/DAV.git"
+
+
 def update_with_pipx() -> bool:
     """Update Dav using pipx."""
     try:
@@ -139,10 +143,11 @@ def update_with_pipx() -> bool:
         except Exception:
             pass  # Continue even if cache clearing fails
 
-        # Use pipx reinstall to ensure a completely fresh installation
-        # This is more reliable than upgrade for ensuring all files are updated
+        # Install directly from git with --force to overwrite.
+        # This ensures we always get the latest from the repo, regardless of
+        # how the user originally installed (PyPI vs git) or pip's cache.
         result = subprocess.run(
-            ['pipx', 'reinstall', '--force', 'dav-ai'],
+            ['pipx', 'install', '--force', _DAV_GIT_INSTALL],
             capture_output=True,
             text=True,
             timeout=300,
@@ -153,10 +158,10 @@ def update_with_pipx() -> bool:
             console.print("[green]✓ Dav updated successfully![/green]")
             return True
 
-        # If reinstall fails, try upgrade
-        console.print("[yellow]Reinstall failed, trying upgrade...[/yellow]")
+        # Fallback: try reinstall with --pip-args to bypass pip cache
+        console.print("[yellow]Direct install failed, trying reinstall with cache bypass...[/yellow]")
         result = subprocess.run(
-            ['pipx', 'upgrade', '--force', 'dav-ai'],
+            ['pipx', 'reinstall', '--force', 'dav-ai', '--pip-args=--no-cache-dir'],
             capture_output=True,
             text=True,
             timeout=300,
@@ -167,10 +172,10 @@ def update_with_pipx() -> bool:
             console.print("[green]✓ Dav updated successfully![/green]")
             return True
 
-        # If upgrade fails (package might not be installed), try install
-        console.print("[yellow]Upgrade failed, trying fresh install...[/yellow]")
+        # Last resort: upgrade with cache bypass
+        console.print("[yellow]Trying upgrade with cache bypass...[/yellow]")
         result = subprocess.run(
-            ['pipx', 'install', '--force', 'git+https://github.com/poaxy/DAV.git'],
+            ['pipx', 'upgrade', '--force', 'dav-ai', '--pip-args=--no-cache-dir'],
             capture_output=True,
             text=True,
             timeout=300,

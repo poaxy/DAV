@@ -52,12 +52,12 @@ class ContextTracker:
     def _get_default_model(self) -> str:
         """Get default model for backend."""
         if self.backend == "openai":
-            return "gpt-4-turbo-preview"
+            return "o4-mini"
         elif self.backend == "anthropic":
-            return "claude-3-5-sonnet-20241022"
+            return "claude-sonnet-4-6"
         elif self.backend == "gemini":
-            return "gemini-1.5-pro-latest"
-        return "gpt-4-turbo-preview"
+            return "gemini-2.5-pro"
+        return "o4-mini"
     
     def _get_max_tokens(self) -> int:
         """
@@ -67,21 +67,22 @@ class ContextTracker:
             Maximum tokens for the model
         """
         if self.backend == "openai":
-            # OpenAI models typically have 128K context window
-            if "gpt-4" in self.model.lower():
+            # o4-mini has 200K, GPT-4 has 128K, GPT-3.5 has 16K
+            if "o4" in self.model.lower() or "o3" in self.model.lower():
+                return 200_000
+            elif "gpt-4" in self.model.lower():
                 return 128_000
             elif "gpt-3.5" in self.model.lower():
-                return 16_385  # GPT-3.5 has smaller context
-            return 128_000  # Default for newer models
+                return 16_385
+            return 200_000  # Default for newer models
         elif self.backend == "anthropic":
-            # Anthropic Claude models have 200K context window
-            if "claude-3" in self.model.lower() or "claude-3.5" in self.model.lower():
+            # Claude models have 200K context (1M in beta for some)
+            if "claude" in self.model.lower():
                 return 200_000
-            return 200_000  # Default for Claude models
+            return 200_000
         elif self.backend == "gemini":
-            # Gemini 1.5 models support very large context windows (up to 1M tokens),
-            # but we use a conservative default here.
-            if "1.5" in self.model.lower():
+            # Gemini 2.5 Pro and 1.5 Pro support 1M context
+            if "2.5" in self.model.lower() or "1.5" in self.model.lower():
                 return 1_000_000
             return 256_000
         return 80_000  # Safe default

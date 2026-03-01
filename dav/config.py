@@ -25,9 +25,9 @@ for env_path in env_paths:
             load_dotenv(env_path)
         break
 
-DEFAULT_MODEL_OPENAI = "gpt-4-turbo-preview"
-DEFAULT_MODEL_ANTHROPIC = "claude-3-5-sonnet-20241022"
-DEFAULT_MODEL_GEMINI = "gemini-1.5-pro-latest"
+DEFAULT_MODEL_OPENAI = "o4-mini"
+DEFAULT_MODEL_ANTHROPIC = "claude-sonnet-4-6"
+DEFAULT_MODEL_GEMINI = "gemini-2.5-pro"
 DEFAULT_BACKEND = "openai"
 DEFAULT_MAX_STDIN_CHARS = 32000
 DEFAULT_MAX_CONTEXT_TOKENS = 80000

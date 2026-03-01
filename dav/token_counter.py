@@ -86,7 +86,7 @@ def _count_tokens_openai(text: str, model: Optional[str] = None) -> int:
     """Count tokens for OpenAI models using tiktoken with caching."""
     try:
         # Default model if not specified
-        model = model or "gpt-4-turbo-preview"
+        model = model or "o4-mini"
         
         # Use cached token counting for better performance
         return _count_tokens_cached(text, model)

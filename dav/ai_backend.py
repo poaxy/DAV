@@ -1,5 +1,6 @@
 """AI backend integration for OpenAI, Anthropic, and Gemini."""
 
+import warnings
 from typing import Iterator, Optional
 
 from anthropic import Anthropic
@@ -70,7 +71,9 @@ class AIBackend:
             self.client = Anthropic(api_key=self.api_key)
         elif self.backend == "gemini":
             try:
-                from google import generativeai as genai
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", FutureWarning)  # google.generativeai is deprecated
+                    from google import generativeai as genai
             except Exception as e:
                 raise ValueError(
                     "Gemini backend selected but 'google-generativeai' is not installed. "
@@ -162,7 +165,9 @@ class AIBackend:
     def _stream_gemini(self, prompt: str, system_prompt: Optional[str] = None) -> Iterator[str]:
         """Stream response from Gemini (Google AI)."""
         try:
-            from google import generativeai as genai  # type: ignore
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", FutureWarning)  # google.generativeai is deprecated
+                from google import generativeai as genai  # type: ignore
         except Exception as e:
             raise APIError(f"Gemini backend not available: {e}") from e
         
@@ -282,7 +287,9 @@ class AIBackend:
     def _get_gemini(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """Get complete response from Gemini (Google AI)."""
         try:
-            from google import generativeai as genai  # type: ignore
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", FutureWarning)  # google.generativeai is deprecated
+                from google import generativeai as genai  # type: ignore
         except Exception as e:
             raise APIError(f"Gemini backend not available: {e}") from e
         

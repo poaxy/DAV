@@ -279,6 +279,7 @@ def main(
         log_mode=log_mode,
     )
     
+    automation_logger = None  # Not used in single-query (non-automation) mode
     try:
         backend_name = ai_backend.backend.title()
         response = render_streaming_response_with_loading(

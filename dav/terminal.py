@@ -127,6 +127,10 @@ def _get_shortened_model_name(model: str, backend: str) -> str:
     model_lower = model.lower()
     
     if backend == "openai":
+        if "o4-mini" in model_lower:
+            return "o4-mini"
+        if "o4" in model_lower or "o3" in model_lower:
+            return model_lower[:10]  # o4-mini, o3-mini, etc.
         if "gpt-4" in model_lower:
             if "turbo" in model_lower:
                 return "gpt-4-turbo"
@@ -135,6 +139,8 @@ def _get_shortened_model_name(model: str, backend: str) -> str:
             return "gpt-3.5"
         return "gpt"
     elif backend == "anthropic":
+        if "claude-sonnet-4" in model_lower:
+            return "claude-sonnet-4"
         if "claude-3.5" in model_lower:
             return "claude-3.5"
         elif "claude-3" in model_lower:
@@ -142,6 +148,8 @@ def _get_shortened_model_name(model: str, backend: str) -> str:
         elif "claude" in model_lower:
             return "claude"
     elif backend == "gemini":
+        if "2.5-pro" in model_lower:
+            return "gemini-2.5-pro"
         if "1.5-pro" in model_lower:
             return "gemini-1.5-pro"
         if "1.5-flash" in model_lower:

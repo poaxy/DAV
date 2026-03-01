@@ -80,17 +80,17 @@ def run_setup() -> None:
 # OpenAI Configuration
 OPENAI_API_KEY={api_key}
 DAV_BACKEND=openai
-DAV_DEFAULT_MODEL=gpt-4-turbo-preview
-# DAV_OPENAI_MODEL=gpt-4-turbo-preview  # Override default OpenAI model
+DAV_DEFAULT_MODEL=o4-mini
+# DAV_OPENAI_MODEL=o4-mini  # Override default OpenAI model
 
 # Optional: Anthropic Configuration (if you want to switch later or enable failover)
 # ANTHROPIC_API_KEY=your_anthropic_api_key_here
-# DAV_ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+# DAV_ANTHROPIC_MODEL=claude-sonnet-4-6
 
 # Optional: Gemini Configuration (if you want to switch later or enable failover)
 # GEMINI_API_KEY=your_gemini_api_key_here
 # GOOGLE_API_KEY=your_google_api_key_here  # Alternative to GEMINI_API_KEY
-# DAV_GEMINI_MODEL=gemini-1.5-pro-latest
+# DAV_GEMINI_MODEL=gemini-2.5-pro
 
 # Permissions
 DAV_ALLOW_EXECUTE=false
@@ -113,17 +113,17 @@ DAV_SESSION_DIR=~/.dav/sessions
 # Anthropic Configuration
 ANTHROPIC_API_KEY={api_key}
 DAV_BACKEND=anthropic
-DAV_DEFAULT_MODEL=claude-3-5-sonnet-20241022
-# DAV_ANTHROPIC_MODEL=claude-3-5-sonnet-20241022  # Override default Anthropic model
+DAV_DEFAULT_MODEL=claude-sonnet-4-6
+# DAV_ANTHROPIC_MODEL=claude-sonnet-4-6  # Override default Anthropic model
 
 # Optional: OpenAI Configuration (if you want to switch later or enable failover)
 # OPENAI_API_KEY=your_openai_api_key_here
-# DAV_OPENAI_MODEL=gpt-4-turbo-preview
+# DAV_OPENAI_MODEL=o4-mini
 
 # Optional: Gemini Configuration (if you want to switch later or enable failover)
 # GEMINI_API_KEY=your_gemini_api_key_here
 # GOOGLE_API_KEY=your_google_api_key_here  # Alternative to GEMINI_API_KEY
-# DAV_GEMINI_MODEL=gemini-1.5-pro-latest
+# DAV_GEMINI_MODEL=gemini-2.5-pro
 
 # Permissions
 DAV_ALLOW_EXECUTE=false
@@ -148,16 +148,16 @@ GEMINI_API_KEY={api_key}
 # Alternatively, you can use GOOGLE_API_KEY for compatibility with other tools
 # GOOGLE_API_KEY={api_key}
 DAV_BACKEND=gemini
-DAV_DEFAULT_MODEL=gemini-1.5-pro-latest
-# DAV_GEMINI_MODEL=gemini-1.5-pro-latest  # Override default Gemini model
+DAV_DEFAULT_MODEL=gemini-2.5-pro
+# DAV_GEMINI_MODEL=gemini-2.5-pro  # Override default Gemini model
 
 # Optional: OpenAI Configuration (if you want to switch later or enable failover)
 # OPENAI_API_KEY=your_openai_api_key_here
-# DAV_OPENAI_MODEL=gpt-4-turbo-preview
+# DAV_OPENAI_MODEL=o4-mini
 
 # Optional: Anthropic Configuration (if you want to switch later or enable failover)
 # ANTHROPIC_API_KEY=your_anthropic_api_key_here
-# DAV_ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+# DAV_ANTHROPIC_MODEL=claude-sonnet-4-6
 
 # Permissions
 DAV_ALLOW_EXECUTE=false
@@ -330,17 +330,17 @@ def run_root_installation() -> None:
 # OpenAI Configuration
 OPENAI_API_KEY={api_key}
 DAV_BACKEND=openai
-DAV_DEFAULT_MODEL=gpt-4-turbo-preview
-# DAV_OPENAI_MODEL=gpt-4-turbo-preview  # Override default OpenAI model
+DAV_DEFAULT_MODEL=o4-mini
+# DAV_OPENAI_MODEL=o4-mini  # Override default OpenAI model
 
 # Optional: Anthropic Configuration (if you want to switch later or enable failover)
 # ANTHROPIC_API_KEY=your_anthropic_api_key_here
-# DAV_ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+# DAV_ANTHROPIC_MODEL=claude-sonnet-4-6
 
 # Optional: Gemini Configuration (if you want to switch later or enable failover)
 # GEMINI_API_KEY=your_gemini_api_key_here
 # GOOGLE_API_KEY=your_google_api_key_here  # Alternative to GEMINI_API_KEY
-# DAV_GEMINI_MODEL=gemini-1.5-pro-latest
+# DAV_GEMINI_MODEL=gemini-2.5-pro
 
 # Permissions
 DAV_ALLOW_EXECUTE=false
@@ -363,17 +363,17 @@ DAV_SESSION_DIR=/root/.dav/sessions
 # Anthropic Configuration
 ANTHROPIC_API_KEY={api_key}
 DAV_BACKEND=anthropic
-DAV_DEFAULT_MODEL=claude-3-5-sonnet-20241022
-# DAV_ANTHROPIC_MODEL=claude-3-5-sonnet-20241022  # Override default Anthropic model
+DAV_DEFAULT_MODEL=claude-sonnet-4-6
+# DAV_ANTHROPIC_MODEL=claude-sonnet-4-6  # Override default Anthropic model
 
 # Optional: OpenAI Configuration (if you want to switch later or enable failover)
 # OPENAI_API_KEY=your_openai_api_key_here
-# DAV_OPENAI_MODEL=gpt-4-turbo-preview
+# DAV_OPENAI_MODEL=o4-mini
 
 # Optional: Gemini Configuration (if you want to switch later or enable failover)
 # GEMINI_API_KEY=your_gemini_api_key_here
 # GOOGLE_API_KEY=your_google_api_key_here  # Alternative to GEMINI_API_KEY
-# DAV_GEMINI_MODEL=gemini-1.5-pro-latest
+# DAV_GEMINI_MODEL=gemini-2.5-pro
 
 # Permissions
 DAV_ALLOW_EXECUTE=false
@@ -398,16 +398,16 @@ GEMINI_API_KEY={api_key}
 # Alternatively, you can use GOOGLE_API_KEY for compatibility with other tools
 # GOOGLE_API_KEY={api_key}
 DAV_BACKEND=gemini
-DAV_DEFAULT_MODEL=gemini-1.5-pro-latest
-# DAV_GEMINI_MODEL=gemini-1.5-pro-latest  # Override default Gemini model
+DAV_DEFAULT_MODEL=gemini-2.5-pro
+# DAV_GEMINI_MODEL=gemini-2.5-pro  # Override default Gemini model
 
 # Optional: OpenAI Configuration (if you want to switch later or enable failover)
 # OPENAI_API_KEY=your_openai_api_key_here
-# DAV_OPENAI_MODEL=gpt-4-turbo-preview
+# DAV_OPENAI_MODEL=o4-mini
 
 # Optional: Anthropic Configuration (if you want to switch later or enable failover)
 # ANTHROPIC_API_KEY=your_anthropic_api_key_here
-# DAV_ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
+# DAV_ANTHROPIC_MODEL=claude-sonnet-4-6
 
 # Permissions
 DAV_ALLOW_EXECUTE=false
