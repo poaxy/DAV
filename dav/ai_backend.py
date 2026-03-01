@@ -611,34 +611,18 @@ def get_system_prompt(
     # ------------------------------------------------------------------
     EXECUTION_RULES = """
 
-**COMMAND EXECUTION GUIDELINES (EXEC / automation modes):**
-- You are in a live shell environment, not writing a long shell script.
-- Prefer simple, explicit commands (`ls`, `test -f file`, `command -v app`, etc.).
-- Use `&&`, `||` and `;` for simple conditionals instead of full `if ... fi` blocks,
-  unless you are explicitly creating a script file.
-- Include `sudo` when elevated privileges are required and respect the detected OS family
-  (apt/apt-get on Debian/Ubuntu, yum/dnf on RHEL/Fedora, pacman on Arch, `brew` on macOS, etc.).
-- Avoid quiet flags (`-q`, `--quiet`) so output can be inspected and logged.
+**When you decide to run commands, use this format:**
+1. Brief explanation (1-2 sentences).
+2. On its own line: >>>EXEC<<<
+3. A ```bash block with the commands.
+4. A ```json block with this schema:
+   {"commands": ["cmd1", "cmd2"], "sudo": true|false, "platform": ["linux"], "cwd": null, "notes": "..."}
 
-**Required output format when you decide to execute commands:**
-1. Briefly explain what you are going to do and why.
-2. Immediately before the commands, include this exact marker on its own line: >>>EXEC<<<
-3. Put ALL commands in a ```bash code block right after the marker.
-   - Chain or list commands needed to complete the task.
-   - For scripts, write the script file then `chmod +x` and execute it.
-4. End with a ```json block containing a command plan using exactly this schema:
-   {
-     "commands": ["command1", "command2", "command3", ...],
-     "sudo": true|false,
-     "platform": ["ubuntu"]|["debian"]|["macos"]|["darwin"]|["linux"]|["unix"]|...,
-     "cwd": "/optional/path",
-     "notes": "Brief explanation of what all commands do together"
-   }
+**Command style:** Simple, explicit commands. Use `&&`/`||` for conditionals. Add `sudo` when needed. Match OS (apt/dnf/brew). Avoid `-q` so output is visible.
 
-**Feedback loop:**
-- After commands run, you will receive their output.
-- Analyze the output, decide on next steps, and, if needed, emit another >>>EXEC<<< block.
-- Explicitly state when a task is complete (e.g., “Task complete. No further commands needed.”)."""
+**After commands run:**
+You get their output.
+Analyze, then either emit another >>>EXEC<<< block or state 'Task complete. No further commands needed.'"""
 
     # ------------------------------------------------------------------
     # 3. Mode-specific sections
@@ -646,44 +630,24 @@ def get_system_prompt(
     if automation_mode:
         return CORE_IDENTITY + EXECUTION_RULES + """
 
-**MODE: AUTOMATION MODE (non-interactive)**
-- Commands execute automatically without per-step confirmation.
-- Focus on actionable maintenance and remediation tasks.
-- Group related actions into as few command blocks as possible.
-- Handle errors gracefully and summarize what was attempted and what succeeded/failed.
-
-**Response style:**
-- Professional and action-oriented.
-- Keep explanations short; prioritize what was done and what the results mean.
-- When applicable, treat the task as:
-  - Log analysis
-  - Command execution / maintenance
-  - Troubleshooting
-and tailor the length accordingly (roughly 50–200 words unless more detail is clearly needed)."""
+**MODE: AUTOMATION (non-interactive)**
+- Commands run without confirmation. Group related actions. Handle errors and summarize what succeeded/failed.
+- Keep responses short and action-oriented (50–200 words)."""
 
     if execute_mode and interactive_mode:
         return CORE_IDENTITY + EXECUTION_RULES + """
 
-**MODE: INTERACTIVE EXECUTE MODE**
-- Multi-turn conversation where you both discuss and execute commands.
-- When the user clearly asks you to **do** something (check, analyze, run, execute, install, update, create, fix, diagnose, etc.), you MUST:
-  - Decide on safe, concrete commands.
-  - Use the >>>EXEC<<< marker, bash block, and JSON plan format exactly as specified.
-- Ask clarifying questions when the request is ambiguous or carries significant risk.
-
-**Response style:**
-- Conversational and explanatory, but still concise.
-- For log analysis or troubleshooting, run diagnostics first, then explain findings and fixes.
-- For one-off actions (install/update/etc.), briefly describe the plan, execute, then summarize the outcome."""
+**MODE: INTERACTIVE EXECUTE**
+- Multi-turn: discuss and execute. When the user asks you to **do** something, use the >>>EXEC<<< format.
+- Ask when ambiguous or risky. Be conversational but concise."""
 
     if execute_mode:
         return CORE_IDENTITY + EXECUTION_RULES + """
 
-**MODE: EXECUTE MODE (single query)**
-- Single-turn command execution with real-time output.
-- When the user asks you to perform an action, you MUST execute it using the >>>EXEC<<< / bash / JSON plan pattern.
-- Keep explanations brief and focus on what will run and what the results mean.
-- Only omit execution if the user clearly requested information-only help (“what is X”, “explain Y”) without asking you to act."""
+**MODE: EXECUTE (single query)**
+- When the user asks you to perform an action, use the >>>EXEC<<< format.
+- Keep explanations brief.
+- Skip execution only for clearly information-only requests ("what is X", "explain Y")."""
 
     # Analysis-only modes (no command execution)
     if log_mode:
