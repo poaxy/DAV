@@ -33,63 +33,79 @@ ALLOW_COLOR = "#00ff00"  # Green
 DENY_COLOR = "#ff0000"  # Red
 
 # Patterns to match JSON blocks (for filtering from display)
+# Command plan JSON should never be shown to users - only used internally by the executor.
 JSON_CODE_BLOCK_PATTERN = re.compile(
-    r"```json\s*\{.*?\}\s*```",  # Match ```json { ... } ``` blocks
+    r"```(?:json)?\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}\s*```",
     re.DOTALL | re.IGNORECASE
 )
 JSON_OBJECT_PATTERN = re.compile(
-    r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}",  # Match standalone JSON objects
+    r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}",
     re.DOTALL
 )
 JSON_ARRAY_PATTERN = re.compile(
-    r"\[\s*\{.*?\}\s*\]",  # Match JSON arrays
+    r"\[\s*\{.*?\}\s*\]",
     re.DOTALL | re.IGNORECASE
 )
+# Dav command plan schema: objects with "commands" key (our exact format)
+COMMAND_PLAN_KEYS = ('"commands"', '"command"', '"action"', '"step"', '"plan"', '"exec"')
 
 
 def strip_json_command_plan(text: str) -> str:
-    """Remove JSON blocks and structures from response text for display purposes.
+    """Remove JSON command plans from response text for display purposes.
     
-    Removes JSON command plans, JSON code blocks, and standalone JSON objects
-    that are used internally but should not be shown to users.
+    The executor needs the JSON internally, but users should only see the
+    readable format (explanation + bash commands). This strips all command
+    plan JSON from what gets displayed in the terminal.
     
     Args:
         text: Response text that may contain JSON blocks
         
     Returns:
-        Text with JSON blocks removed
+        Text with JSON command plan blocks removed
     """
-    # Remove JSON code blocks (```json ... ```)
+    def is_command_plan(match):
+        s = match.group(0).lower()
+        return any(k in s for k in COMMAND_PLAN_KEYS)
+
+    # Remove ```json {...} ``` and ``` {...} ``` code blocks (with or without json tag)
     cleaned = JSON_CODE_BLOCK_PATTERN.sub("", text)
-    
+
     # Remove JSON arrays that look like command plans
     cleaned = JSON_ARRAY_PATTERN.sub("", cleaned)
-    
-    # Remove standalone JSON objects that are likely command plans
-    # Look for JSON objects that contain command-related keys
-    def is_json_command_plan(match):
-        json_str = match.group(0)
-        # Check if it contains command plan indicators
-        if any(key in json_str.lower() for key in ['"command"', '"action"', '"step"', '"plan"', '"exec"']):
-            return True
-        return False
-    
-    # Remove JSON objects that look like command plans
+
+    # Remove standalone JSON objects that are command plans
     cleaned = JSON_OBJECT_PATTERN.sub(
-        lambda m: "" if is_json_command_plan(m) else m.group(0),
+        lambda m: "" if is_command_plan(m) else m.group(0),
         cleaned
     )
-    
-    # Remove any remaining JSON-like structures in code blocks
-    cleaned = re.sub(r"```\s*\{.*?\}\s*```", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
-    
-    # Clean up any extra whitespace/newlines left behind
-    # Remove 3+ consecutive newlines (likely from removed JSON blocks)
+
+    # Remove any remaining code blocks containing JSON objects
+    cleaned = re.sub(r"```\s*\{[^`]*?\}\s*```", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
+
+    # Fallback: remove raw JSON objects with "commands" key (no code block)
+    cleaned = re.sub(
+        r'\{\s*"commands"\s*:\s*\[.*?\]\s*,.*?\}',
+        "",
+        cleaned,
+        flags=re.DOTALL | re.IGNORECASE
+    )
+
+    # Hide in-progress JSON command plan during streaming (incomplete blocks)
+    # If we see start of JSON block but no closing ```, truncate so user never sees it
+    json_block_start = re.search(
+        r'```(?:json)?\s*\{\s*"commands"',
+        cleaned,
+        re.IGNORECASE
+    )
+    if json_block_start:
+        after = cleaned[json_block_start.start():]
+        if after.count("```") < 2:  # Opening ``` but no closing yet
+            cleaned = cleaned[:json_block_start.start()].rstrip()
+
+    # Clean up extra whitespace left behind
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-    
-    # Remove trailing whitespace
     cleaned = cleaned.rstrip()
-    
+
     return cleaned
 
 
