@@ -85,6 +85,11 @@ Dav follows a **security-first** approach: it analyzes requests, understands con
    - File permission validation
    - Input sanitization and validation
 
+8. **Vulnerability Scanning & CVE Analysis**
+   - System-wide and core-package vulnerability scans backed by the NVD database
+   - Local CVE result caching for performance and reduced API usage
+   - Optional remediation assistance (with `--execute` for human-in-the-loop fixes)
+
 ---
 
 ## Dav vs. Other AI Assistants
@@ -327,6 +332,18 @@ ps aux | dav "which processes are using the most memory?"
 cat error.log | dav "explain these errors"
 ```
 
+### Log-Focused Analysis Mode
+
+Analyze logs with explicit log mode (helps Dav treat stdin purely as log content):
+
+```bash
+# Analyze application logs with log-focused prompts
+cat app.log | dav -log "why is my app crashing?"
+
+# Use default log analysis prompt
+cat app.log | dav -log
+```
+
 ### Script-Based Automation
 
 Generate reusable bash scripts from natural language requests:
@@ -344,6 +361,30 @@ For each `--script` call, Dav will:
 - Generate a bash script under `~/.dav/scripts/`
 - Show you the script contents
 - Ask with **Allow/Deny** whether to run it now (optionally as root via `sudo`)
+
+List existing scripts:
+
+```bash
+dav --script-list
+```
+
+### Vulnerability Scanning & CVE Analysis
+
+Scan your system for known vulnerabilities using NVD-backed CVE data:
+
+```bash
+# Full system scan
+dav --cve scan
+
+# Scan only core security-critical packages
+dav --cve scan-core
+
+# Ask targeted questions after a scan
+dav --cve "summarize critical OpenSSL vulnerabilities affecting this system"
+
+# Allow Dav to execute suggested remediation commands (with confirmation)
+dav --cve scan --execute
+```
 
 ### Update Dav
 
@@ -667,6 +708,11 @@ DAV_MAX_CONTEXT_MESSAGES=100     # Maximum messages to include in context
 
 # Script Storage (optional override)
 # DAV_SCRIPTS_DIR=~/.dav/scripts      # Directory for generated scripts
+
+# Vulnerability Scanning (optional)
+DAV_NVD_API_KEY=your-nvd-api-key      # Optional: higher NVD API rate limits
+DAV_CVE_CACHE_DIR=~/.dav/cve_cache    # Optional: CVE cache directory
+DAV_CVE_CACHE_TTL=86400               # Optional: cache TTL in seconds (default 86400)
 ```
 
 ### Multi-Provider Setup (Failover)
