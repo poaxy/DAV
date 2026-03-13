@@ -8,7 +8,7 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
 
 setup(
     name="dav-ai",
-    version="0.1.0",
+    version="1.0.0",
     author="Dav Project",
     description="An intelligent, context-aware AI assistant built directly into the Linux terminal",
     long_description=long_description,
@@ -16,7 +16,7 @@ setup(
     url="https://github.com/poaxy/DAV",
     packages=find_packages(),
     classifiers=[
-        "Development Status :: 4 - Beta",
+        "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Developers",
         "Intended Audience :: System Administrators",
         "Topic :: System :: Systems Administration",
