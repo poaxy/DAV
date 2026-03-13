@@ -181,6 +181,15 @@ def prepare_command_for_execution(
         else:
             raise CommandParseError("Failed to create safe script for complex command")
     
-    # For simple commands, return the parsed list
-    return command_list, False, None
+    # For simple commands, perform user-home (~) expansion on each argument.
+    # Because we execute without a shell, we need to mirror the shell's typical
+    # behavior of expanding paths like "~" and "~/.ssh" ourselves.
+    expanded_list: List[str] = []
+    for part in command_list:
+        if part.startswith("~"):
+            expanded_list.append(os.path.expanduser(part))
+        else:
+            expanded_list.append(part)
+
+    return expanded_list, False, None
 
