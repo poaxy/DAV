@@ -8,12 +8,16 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 import typer
 from rich.console import Console
 
+from dav import __version__
+
 if TYPE_CHECKING:
     from dav.ai_backend import FailoverAIBackend
     from dav.executor import ExecutionResult
     from dav.session import SessionManager
 
-app = typer.Typer(help="Dav - An intelligent, context-aware AI assistant for the Linux terminal")
+app = typer.Typer(
+    help=f"Dav v{__version__} - An intelligent, context-aware AI assistant for the Linux terminal"
+)
 console = Console()
 
 
