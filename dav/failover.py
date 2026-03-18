@@ -188,10 +188,21 @@ def is_failover_error(error: Exception) -> bool:
         if any(indicator in error_str for indicator in rate_limit_indicators + auth_indicators + server_indicators):
             return True
     
-    # For all other exceptions, DO NOT trigger failover.
-    # These are more likely to be programming errors, misconfiguration, or
-    # issues that will not be resolved by switching providers. Let them
-    # propagate so that callers and users see the real root cause instead of
-    # cycling through providers.
+    # Certain provider wrappers surface generic APIError with backend-specific
+    # messages. Some of these are effectively transient backend failures and
+    # are worth failing over from, even though they are not cleanly classified
+    # as network/HTTP errors. Handle known problematic patterns here.
+    lower_msg = error_str
+    if "gemini api error" in lower_msg and "invalid operation" in lower_msg:
+        # Example: "Gemini API error: Invalid operation: The `response.text` quick accessor
+        # requires the response to contain a valid `Part`, but none were returned."
+        # This indicates an unusable, empty response from Gemini; switching to a
+        # different provider (or model) is usually preferable.
+        return True
+
+    # For all other exceptions, DO NOT trigger failover. These are more likely
+    # to be programming errors, misconfiguration, or issues that will not be
+    # resolved by switching providers. Let them propagate so that callers and
+    # users see the real root cause instead of cycling through providers.
     return False
 
