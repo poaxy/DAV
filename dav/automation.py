@@ -39,18 +39,37 @@ class AutomationLogger:
         self.errors: List[str] = []
         self.warnings: List[str] = []
         self.ai_responses: List[str] = []
+        # Track simple informational messages and the raw commands/outputs that
+        # were seen, so that future enhancements can surface them in reports.
+        self.infos: List[str] = []
+        self._raw_commands: List[str] = []
+        self._raw_outputs: List[str] = []
+        # Guard against writing multiple summaries for the same run.
+        self._summary_written: bool = False
     
     def log_info(self, message: str) -> None:
         """Record informational message (stored for summary, not logged immediately)."""
-        pass
+        if not message:
+            return
+        self.infos.append(message)
     
     def log_command(self, command: str) -> None:
         """Record command for summary (not logged immediately)."""
-        pass
+        if not command:
+            return
+        self._raw_commands.append(command)
     
     def log_output(self, stdout: str, stderr: str, return_code: int) -> None:
         """Record command output for summary."""
-        pass
+        # Store a lightweight combined view of outputs; detailed previews are
+        # derived in record_command_execution.
+        parts = []
+        if stdout:
+            parts.append(stdout.strip())
+        if stderr:
+            parts.append(f"STDERR: {stderr.strip()}")
+        if parts:
+            self._raw_outputs.append("\n".join(parts))
     
     def record_command_execution(self, command: str, success: bool, return_code: int, 
                                  stdout: str = "", stderr: str = "") -> None:
@@ -275,6 +294,8 @@ Keep it concise and readable, like a short human-written report, not a technical
     
     def log_summary(self, task_query: str, execution_results: Optional[List] = None) -> None:
         """Generate and write AI-powered summary report."""
+        if self._summary_written:
+            return
         if not self.task_query:
             self.task_query = task_query
         
@@ -307,6 +328,7 @@ Report saved: {self.report_file}
         print(report)
         print("=" * 80)
         print(f"Full report saved to: {self.report_file}\n")
+        self._summary_written = True
     
     def cleanup_old_logs(self, retention_days: Optional[int] = None) -> None:
         """Remove logs older than retention period."""
@@ -329,7 +351,15 @@ Report saved: {self.report_file}
     
     def close(self) -> None:
         """Close logger and ensure report is written."""
-        pass
+        # If a summary has already been written explicitly, do nothing.
+        if self._summary_written:
+            return
+        # Only write a report if there is something meaningful to report.
+        if not (self.commands or self.errors or self.warnings or self.ai_responses):
+            return
+        # Use a generic task label if none was provided.
+        label = self.task_query or "Automation task"
+        self.log_summary(label, execution_results=None)
     
     def __enter__(self):
         """Context manager entry."""

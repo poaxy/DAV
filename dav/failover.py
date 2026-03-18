@@ -188,6 +188,10 @@ def is_failover_error(error: Exception) -> bool:
         if any(indicator in error_str for indicator in rate_limit_indicators + auth_indicators + server_indicators):
             return True
     
-    # All other exceptions should trigger failover (catch-all)
-    return True
+    # For all other exceptions, DO NOT trigger failover.
+    # These are more likely to be programming errors, misconfiguration, or
+    # issues that will not be resolved by switching providers. Let them
+    # propagate so that callers and users see the real root cause instead of
+    # cycling through providers.
+    return False
 
