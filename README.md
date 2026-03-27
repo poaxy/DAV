@@ -4,8 +4,6 @@
 
 Dav transforms your terminal into an AI-powered system administration assistant that understands your system context, executes commands safely, and helps you manage your infrastructure with natural language.
 
-**GitHub**: [https://github.com/poaxy/DAV](https://github.com/poaxy/DAV)
-
 ---
 
 ## Table of Contents
